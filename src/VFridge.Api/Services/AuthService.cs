@@ -19,11 +19,13 @@ public sealed class AuthService(
     private readonly JwtOptions _jwt = jwtOpts.Value;
     private readonly FrontendOptions _frontend = frontendOpts.Value;
 
-    public async Task<(bool Ok, string? Error, UserSummary? User)> SignUpAsync(SignUpRequest req, CancellationToken ct)
+    public const string SignUpErrorEmailExists = "EMAIL_EXISTS";
+
+    public async Task<(bool Ok, string? ErrorCode, UserSummary? User)> SignUpAsync(SignUpRequest req, CancellationToken ct)
     {
         var emailNormalized = req.Email.Trim().ToLowerInvariant();
         var exists = await db.Users.AnyAsync(u => u.Email == emailNormalized, ct);
-        if (exists) return (false, "A user with this email already exists", null);
+        if (exists) return (false, SignUpErrorEmailExists, null);
 
         var user = new User
         {
@@ -56,7 +58,9 @@ public sealed class AuthService(
         return (true, null, pair);
     }
 
-    public async Task<(bool Ok, string? Error, TokenPair? Tokens)> RefreshAsync(string rawRefreshToken, CancellationToken ct)
+    public const string RefreshErrorInvalid = "REFRESH_INVALID";
+
+    public async Task<(bool Ok, string? ErrorCode, TokenPair? Tokens)> RefreshAsync(string rawRefreshToken, CancellationToken ct)
     {
         var hash = tokens.Hash(rawRefreshToken);
         var stored = await db.RefreshTokens
@@ -64,7 +68,7 @@ public sealed class AuthService(
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
         if (stored is null || !stored.IsActive)
-            return (false, "Refresh token is invalid", null);
+            return (false, RefreshErrorInvalid, null);
 
         // Rotate: revoke the old token immediately, issue a fresh pair.
         stored.RevokedAt = DateTime.UtcNow;
@@ -83,15 +87,19 @@ public sealed class AuthService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<(bool Ok, string? Error, int? UserId)> VerifyEmailAsync(string rawToken, CancellationToken ct)
+    public const string VerifyErrorTokenNotFound = "TOKEN_NOT_FOUND";
+    public const string VerifyErrorTokenUsed = "TOKEN_USED";
+    public const string VerifyErrorTokenExpired = "TOKEN_EXPIRED";
+
+    public async Task<(bool Ok, string? ErrorCode, int? UserId)> VerifyEmailAsync(string rawToken, CancellationToken ct)
     {
         var hash = tokens.Hash(rawToken);
         var record = await db.EmailVerificationTokens
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
-        if (record is null) return (false, "Verification token not found", null);
-        if (record.UsedAt is not null) return (false, "Token has already been used", null);
-        if (record.ExpiresAt < DateTime.UtcNow) return (false, "Token has expired", null);
+        if (record is null) return (false, VerifyErrorTokenNotFound, null);
+        if (record.UsedAt is not null) return (false, VerifyErrorTokenUsed, null);
+        if (record.ExpiresAt < DateTime.UtcNow) return (false, VerifyErrorTokenExpired, null);
 
         record.UsedAt = DateTime.UtcNow;
 
