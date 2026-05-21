@@ -9,5 +9,5 @@ public sealed record ChatMessageResponse(
     DateTime? CreatedAt);
 
 public sealed record SendChatRequest(
-    [Required, MinLength(1, ErrorMessage = "Message cannot be empty")]
+    [property: Required, MinLength(1, ErrorMessage = "Message cannot be empty")]
     string Content);
