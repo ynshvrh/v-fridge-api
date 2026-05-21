@@ -9,7 +9,7 @@ This service replaces the in-process Next.js API routes and exposes a typed REST
 ## Tech stack
 
 * **Runtime:** .NET 10, ASP.NET Core Minimal API
-* **ORM:** EF Core 10 (Npgsql) — **DB-first**, models scaffolded from the existing Neon Postgres schema
+* **ORM:** EF Core 10 (Npgsql) — schema owned by this repo via raw SQL migrations (`Migrations/*.sql`)
 * **Auth:** Stateless JWT bearer + opaque refresh tokens (returned in JSON body, **no cookies** — public-API friendly), Google ID-token sign-in, email verification
 * **Mail:** MailKit SMTP (Gmail-style auth)
 * **AI:** OpenRouter (OpenAI-compatible chat completions, configurable model)
@@ -113,16 +113,16 @@ Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
 
 ## Database
 
-The schema is owned by Drizzle in the [`V-Fridge`](https://github.com/ynshvrh/V-Fridge) Next.js repo. EF Core consumes the same Neon Postgres database — no migrations are produced here.
+The schema lives in this repo as plain `.sql` migrations under `src/VFridge.Api/Migrations/`:
 
-To re-scaffold after Drizzle changes:
+| File              | Purpose                                                                          |
+| ----------------- | -------------------------------------------------------------------------------- |
+| `000_initial.sql` | Base tables (`users`, `products`, `chat`). Created idempotently with `IF NOT EXISTS`. |
+| `001_auth.sql`    | Additive: `email_verifications`, `email_verification_tokens`, `oauth_logins`, `refresh_tokens`. |
 
-```bash
-cd src/VFridge.Api
-dotnet ef dbcontext scaffold "<Npgsql connection string>" \
-  Npgsql.EntityFrameworkCore.PostgreSQL \
-  --output-dir Data/Entities --context-dir Data --context VFridgeDbContext --force --no-onconfiguring
-```
+`Infrastructure/SqlMigrator.cs` is a tiny additive-migration runner: on every startup it picks up each `NNN_*.sql`, hashes its filename, and applies it once per database (tracked in `schema_migrations`). New migration? Drop the next-numbered file alongside the existing ones — the host applies it at startup, the integration tests pick it up automatically (see `tests/VFridge.Api.Tests/Integration/SqlMigratorTests.cs`).
+
+The Next.js client repo no longer owns any schema or Drizzle config — it consumes this API over HTTP.
 
 ---
 

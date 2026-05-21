@@ -1,5 +1,5 @@
 -- 001_auth.sql — additive schema for the auth feature.
--- Idempotent: safe to re-run. Owned by the C# API; Drizzle does not touch these tables.
+-- Idempotent: safe to re-run.
 
 -- Tracks email verification state. A row means the address has been verified at `verified_at`.
 CREATE TABLE IF NOT EXISTS email_verifications (
