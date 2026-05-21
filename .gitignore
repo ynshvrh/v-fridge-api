@@ -1,0 +1,44 @@
+## .NET
+bin/
+obj/
+out/
+*.user
+*.suo
+.vs/
+.vscode/
+*.userprefs
+
+## Build / publish
+publish/
+**/Properties/PublishProfiles/*.pubxml.user
+**/Properties/PublishProfiles/*.pubxml.local
+
+## Rider / Resharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Logs
+*.log
+logs/
+
+## Secrets / env
+.env
+.env.local
+*.secrets
+appsettings.Local.json
+appsettings.*.Local.json
+
+## Test results
+TestResults/
+coverage/
+*.coverage
+*.coveragexml
+
+## Misc
+*.pid
+*.swp
