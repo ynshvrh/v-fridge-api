@@ -10,8 +10,8 @@ This service replaces the in-process Next.js API routes and exposes a typed REST
 
 * **Runtime:** .NET 10, ASP.NET Core Minimal API
 * **ORM:** EF Core 10 (Npgsql) — **DB-first**, models scaffolded from the existing Neon Postgres schema
-* **Auth:** JWT bearer + HttpOnly refresh cookie, Google OAuth, email verification (planned in `feat/auth`)
-* **Mail:** MailKit (SMTP) — planned in `feat/auth`
+* **Auth:** Stateless JWT bearer + opaque refresh tokens (returned in JSON body, **no cookies** — public-API friendly), Google ID-token sign-in, email verification
+* **Mail:** MailKit SMTP (Gmail-style auth)
 * **AI:** OpenRouter (OpenAI-compatible chat completions, configurable model)
 * **Docs:** Built-in OpenAPI at `/openapi/v1.json`
 * **Health:** `/health` (DbContext check)
@@ -81,11 +81,30 @@ dotnet run --project src/VFridge.Api
 
 Defaults:
 
-| Endpoint                | Purpose             |
-| ----------------------- | ------------------- |
-| `GET /`                 | Service metadata    |
-| `GET /health`           | Liveness + DB check |
-| `GET /openapi/v1.json`  | OpenAPI 3 document  |
+| Endpoint                            | Purpose                                       |
+| ----------------------------------- | --------------------------------------------- |
+| `GET /`                             | Service metadata                              |
+| `GET /health`                       | Liveness + DB check                           |
+| `GET /openapi/v1.json`              | OpenAPI 3 document                            |
+| **Auth**                            |                                               |
+| `POST /auth/signup`                 | Create account + send verification email      |
+| `POST /auth/login`                  | Email + password → JWT pair                   |
+| `POST /auth/refresh`                | Rotate refresh token → new JWT pair           |
+| `POST /auth/logout`                 | Revoke refresh token                          |
+| `GET  /auth/verify-email?token=`    | Confirm email (redirects to `Frontend:BaseUrl`) |
+| `POST /auth/resend-verification`    | Resend confirmation email (silent on unknown email) |
+| `POST /auth/google`                 | Sign in with a Google ID token                |
+| `GET  /auth/me`                     | Current user (requires Bearer token)          |
+| **Products** (Bearer required)      |                                               |
+| `GET  /products`                    | List owned, ordered by expiry                 |
+| `POST /products`                    | Create                                        |
+| `PATCH /products/{id}`              | Partial update                                |
+| `DELETE /products/{id}`             | Delete one                                    |
+| `DELETE /products`                  | Delete all owned                              |
+| **Chat** (Bearer required)          |                                               |
+| `GET  /chat`                        | Last 24h, max 20 messages                     |
+| `POST /chat`                        | Ask the AI chef (rate-limited 5/60s)          |
+| `DELETE /chat`                      | Clear history                                 |
 
 Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
 
@@ -110,8 +129,8 @@ dotnet ef dbcontext scaffold "<Npgsql connection string>" \
 
 Each major chunk lands via its own branch + PR (no direct commits to `main`):
 
-| Branch                              | Scope                                              |
-| ----------------------------------- | -------------------------------------------------- |
-| `feat/bootstrap-api`                | Project skeleton, EF Core, OpenAPI, health         |
-| `feat/products-chat-endpoints`      | Products CRUD, Chat (Gemini)                       |
-| `feat/auth`                         | JWT + cookies + Google OAuth + email verification  |
+| Branch                              | Scope                                                  |
+| ----------------------------------- | ------------------------------------------------------ |
+| `feat/bootstrap-api`                | Project skeleton, EF Core, OpenAPI, health             |
+| `feat/products-chat-endpoints`      | Products CRUD, Chat (OpenRouter)                       |
+| `feat/auth`                         | Stateless JWT + Google ID-token + email verification   |
