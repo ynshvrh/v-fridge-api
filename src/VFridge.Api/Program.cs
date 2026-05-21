@@ -119,7 +119,22 @@ builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService
 });
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
-builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+
+// Email: SMTP by default; switch to Resend by setting Email__Provider=resend in env.
+// Cloud platforms (Render, Heroku, etc.) usually block outbound SMTP — Resend goes over HTTPS.
+var emailProvider = (builder.Configuration[$"{EmailOptions.SectionName}:Provider"] ?? "smtp").Trim().ToLowerInvariant();
+if (emailProvider == "resend")
+{
+    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(client =>
+    {
+        client.Timeout = TimeSpan.FromSeconds(30);
+    });
+}
+else
+{
+    builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+}
+
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<FridgeContext>();
 
