@@ -11,6 +11,11 @@ using VFridge.Api.Endpoints;
 using VFridge.Api.Infrastructure;
 using VFridge.Api.Services;
 
+// Load .env if present (Dev convenience). Keys use the standard ASP.NET Core
+// section:key form via double underscores — e.g. Email__Password, Jwt__Secret.
+// Walks parent directories so `dotnet run` from src/VFridge.Api or the repo root both work.
+DotNetEnv.Env.TraversePath().Load();
+
 // The Drizzle-owned schema uses `timestamp without time zone`. Opt back into the legacy
 // Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);

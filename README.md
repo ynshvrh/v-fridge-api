@@ -39,9 +39,10 @@ src/
 All settings live under sections in `appsettings.json` and can be overridden via:
 
 1. `appsettings.Development.json` (committed, no secrets)
-2. **User secrets** in Development (`dotnet user-secrets`) — recommended for local
-3. Environment variables (`Jwt__Secret`, `ConnectionStrings__Default`, …)
-4. The libpq URI form `DATABASE_URL=postgresql://…` is auto-normalised at startup
+2. **User secrets** in Development (`dotnet user-secrets`)
+3. **A `.env` file** in the repo root (gitignored, auto-loaded via `DotNetEnv`) — see `.env.example`. Recommended for local.
+4. Environment variables (`Jwt__Secret`, `ConnectionStrings__Default`, …) — for production
+5. The libpq URI form `DATABASE_URL=postgresql://…` is auto-normalised at startup
 
 ### Required keys
 
