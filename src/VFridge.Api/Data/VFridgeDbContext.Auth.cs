@@ -11,6 +11,9 @@ public partial class VFridgeDbContext
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ShoppingItem> ShoppingItems => Set<ShoppingItem>();
     public DbSet<ConsumptionLog> ConsumptionLogs => Set<ConsumptionLog>();
+    public DbSet<Fridge> Fridges => Set<Fridge>();
+    public DbSet<FridgeMember> FridgeMembers => Set<FridgeMember>();
+    public DbSet<FridgeInvite> FridgeInvites => Set<FridgeInvite>();
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -101,6 +104,75 @@ public partial class VFridgeDbContext
             entity.HasOne(e => e.User).WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Fridge>(entity =>
+        {
+            entity.ToTable("fridges");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(80);
+            entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => e.OwnerId).HasDatabaseName("ix_fridges_owner");
+
+            entity.HasOne(e => e.Owner).WithMany()
+                .HasForeignKey(e => e.OwnerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FridgeMember>(entity =>
+        {
+            entity.ToTable("fridge_members");
+            entity.HasKey(e => new { e.FridgeId, e.UserId });
+
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Role).HasColumnName("role").HasMaxLength(16);
+            entity.Property(e => e.JoinedAt)
+                .HasColumnName("joined_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_fridge_members_user");
+
+            entity.HasOne(e => e.Fridge).WithMany(f => f.Members)
+                .HasForeignKey(e => e.FridgeId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne(e => e.User).WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<FridgeInvite>(entity =>
+        {
+            entity.ToTable("fridge_invites");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
+            entity.Property(e => e.Email).HasColumnName("email").HasMaxLength(255);
+            entity.Property(e => e.TokenHash).HasColumnName("token_hash");
+            entity.Property(e => e.ExpiresAt).HasColumnName("expires_at").HasColumnType("timestamp without time zone");
+            entity.Property(e => e.AcceptedAt).HasColumnName("accepted_at").HasColumnType("timestamp without time zone");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => e.TokenHash).HasDatabaseName("ix_fridge_invites_hash");
+            entity.HasIndex(e => e.FridgeId).HasDatabaseName("ix_fridge_invites_fridge");
+
+            entity.HasOne(e => e.Fridge).WithMany()
+                .HasForeignKey(e => e.FridgeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Ignore(e => e.IsClaimable);
         });
 
         modelBuilder.Entity<ConsumptionLog>(entity =>

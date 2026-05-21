@@ -20,9 +20,13 @@ public partial class Product
 
     public int OwnerId { get; set; }
 
+    public int FridgeId { get; set; }
+
     public DateTime? CreatedAt { get; set; }
 
     public string Category { get; set; } = ProductCategories.Other;
 
     public virtual User Owner { get; set; } = null!;
+
+    public virtual Fridge Fridge { get; set; } = null!;
 }

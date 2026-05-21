@@ -109,6 +109,7 @@ builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<AuthService>();
+builder.Services.AddScoped<FridgeContext>();
 
 // Daily 09:00 Europe/Kyiv: expiry digests + anti-spam cleanup of unverified accounts.
 builder.Services.AddSingleton<DailyMaintenanceWorker>();
@@ -155,6 +156,7 @@ builder.Services.AddOpenApi(options =>
             new() { Name = "Shopping",  Description = "Per-user shopping list. Mark purchased to convert an item into a product in the fridge." },
             new() { Name = "Analytics", Description = "Aggregates on the consumption log: most wasted, fastest consumed, weekly trends." },
             new() { Name = "MealPlan",  Description = "Weekly meal planner: generates 5 weekday meals from the current inventory and lets the client bulk-import missing ingredients into the shopping list." },
+            new() { Name = "Fridges",   Description = "Multi-user fridges. Every user has one personal fridge by default; owners can invite others via email (7-day one-shot token). The active fridge for product reads is picked by the X-Fridge-Id header, defaulting to the caller's first owned fridge." },
             new() { Name = "Meta",      Description = "Service metadata and health." },
         };
         return Task.CompletedTask;
@@ -205,6 +207,7 @@ app.MapChatEndpoints();
 app.MapShoppingEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapMealPlanEndpoints();
+app.MapFridgeEndpoints();
 
 app.Run();
 

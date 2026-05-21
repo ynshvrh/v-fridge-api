@@ -34,14 +34,15 @@ public static class MealPlanEndpoints
 
     private static async Task<IResult> GenerateAsync(
         VFridgeDbContext db,
-        ICurrentUser me,
+        FridgeContext fridgeContext,
         IMealPlannerService planner,
         CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         var inventory = await db.Products
-            .Where(p => p.OwnerId == uid)
+            .Where(p => p.FridgeId == resolved.Value.FridgeId)
             .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
             .ToListAsync(ct);
 

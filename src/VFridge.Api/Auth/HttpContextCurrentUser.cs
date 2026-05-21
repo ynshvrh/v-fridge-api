@@ -29,4 +29,19 @@ public sealed class HttpContextCurrentUser(IHttpContextAccessor accessor, IHostE
             return null;
         }
     }
+
+    public int? RequestedFridgeId
+    {
+        get
+        {
+            var ctx = accessor.HttpContext;
+            if (ctx is null) return null;
+            if (ctx.Request.Headers.TryGetValue("X-Fridge-Id", out var raw)
+                && int.TryParse(raw, out var id))
+            {
+                return id;
+            }
+            return null;
+        }
+    }
 }
