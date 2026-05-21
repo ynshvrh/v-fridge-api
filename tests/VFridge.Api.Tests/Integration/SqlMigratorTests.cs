@@ -55,6 +55,7 @@ public class SqlMigratorTests : IAsyncLifetime
             "email_verification_tokens",
             "oauth_logins",
             "refresh_tokens",
+            "shopping_items",
         });
     }
 
@@ -83,7 +84,7 @@ public class SqlMigratorTests : IAsyncLifetime
         var applied = await db.Database
             .SqlQueryRaw<string>("SELECT name FROM schema_migrations ORDER BY name")
             .ToListAsync();
-        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql");
+        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql", "003_shopping_items.sql");
     }
 
     private IServiceScope BuildScope()
