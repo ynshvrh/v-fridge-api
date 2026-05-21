@@ -51,7 +51,8 @@ public class ProductsTests : IAsyncLifetime
             description = "2.5% fat",
             quantity = 1,
             unit = "l",
-            expiryDate = "2030-01-01"
+            expiryDate = "2030-01-01",
+            category = "dairy"
         });
         create.StatusCode.Should().Be(HttpStatusCode.Created);
 
@@ -59,6 +60,53 @@ public class ProductsTests : IAsyncLifetime
         list.GetArrayLength().Should().Be(1);
         list[0].GetProperty("name").GetString().Should().Be("Milk");
         list[0].GetProperty("unit").GetString().Should().Be("l");
+        list[0].GetProperty("category").GetString().Should().Be("dairy");
+    }
+
+    [Fact]
+    public async Task Create_WithoutCategory_DefaultsToOther()
+    {
+        var create = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Mystery item",
+            quantity = 1,
+            unit = "pcs"
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await create.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("category").GetString().Should().Be("other");
+    }
+
+    [Fact]
+    public async Task Create_WithUnknownCategory_FallsBackToOther()
+    {
+        // The server clamps to the catalog rather than 400-ing — the DB CHECK constraint
+        // would reject 'bogus' otherwise.
+        var create = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Energy bar",
+            quantity = 1,
+            unit = "pcs",
+            category = "bogus"
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+        var body = await create.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("category").GetString().Should().Be("other");
+    }
+
+    [Fact]
+    public async Task Patch_RejectsUnknownCategory()
+    {
+        var created = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Cheese", quantity = 1, unit = "kg", category = "dairy"
+        });
+        var id = (await created.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var patch = await _client.PatchAsJsonAsync($"/products/{id}", new { category = "bogus" });
+        patch.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errors").GetProperty("category")[0].GetString().Should().Contain("Unknown");
     }
 
     [Fact]

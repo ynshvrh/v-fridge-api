@@ -78,11 +78,12 @@ public static class ChatEndpoints
 
         var inventory = await db.Products
             .Where(p => p.OwnerId == uid)
-            .Select(p => p.Name + " (" + p.Quantity + " " + p.Unit + ")")
+            .Select(p => new { p.Name, p.Quantity, p.Unit, p.Category })
             .ToListAsync(ct);
 
         var inventoryStr = inventory.Count > 0
-            ? string.Join(", ", inventory)
+            ? string.Join(", ", inventory.Select(p =>
+                $"{p.Name} [{Contracts.ProductCategories.Label(p.Category)}] ({p.Quantity} {p.Unit})"))
             : "The fridge is empty";
 
         var history = await db.Chats

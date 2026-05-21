@@ -65,6 +65,10 @@ public partial class VFridgeDbContext : DbContext
             entity.Property(e => e.Unit)
                 .HasMaxLength(20)
                 .HasColumnName("unit");
+            entity.Property(e => e.Category)
+                .HasMaxLength(32)
+                .HasDefaultValue(VFridge.Api.Contracts.ProductCategories.Other)
+                .HasColumnName("category");
 
             entity.HasOne(d => d.Owner).WithMany(p => p.Products)
                 .HasForeignKey(d => d.OwnerId)
