@@ -1,10 +1,14 @@
+using System.Text;
 using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
 using VFridge.Api.Endpoints;
+using VFridge.Api.Infrastructure;
 using VFridge.Api.Services;
 
 // The Drizzle-owned schema uses `timestamp without time zone`. Opt back into the legacy
@@ -82,13 +86,39 @@ builder.Services.AddRateLimiter(options =>
     });
 });
 
-// Current-user accessor + AI service
+// Current-user accessor + AI service + auth services
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddHttpClient<IAiChatService, OpenRouterChatService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(60);
 });
+builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
+builder.Services.AddSingleton<ITokenService, TokenService>();
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
+builder.Services.AddScoped<AuthService>();
+
+// JWT bearer auth (public stateless API — no cookies)
+var jwtOpts = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new();
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtOpts.Issuer,
+            ValidAudience = jwtOpts.Audience,
+            IssuerSigningKey = new SymmetricSecurityKey(
+                Encoding.UTF8.GetBytes(string.IsNullOrWhiteSpace(jwtOpts.Secret)
+                    ? new string('x', 32) // dummy placeholder so the host can boot before secret is configured
+                    : jwtOpts.Secret)),
+            ClockSkew = TimeSpan.FromSeconds(30)
+        };
+    });
+builder.Services.AddAuthorization();
 
 // OpenAPI (.NET 10 built-in)
 builder.Services.AddOpenApi();
@@ -96,6 +126,11 @@ builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 
 var app = builder.Build();
+
+// Apply additive SQL migrations
+await SqlMigrator.ApplyAsync(
+    app.Services,
+    Path.Combine(app.Environment.ContentRootPath, "Migrations"));
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
@@ -106,6 +141,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseRateLimiter();
 
 // Routes
@@ -120,6 +157,7 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapHealthChecks("/health");
 
+app.MapAuthEndpoints();
 app.MapProductsEndpoints();
 app.MapChatEndpoints();
 
