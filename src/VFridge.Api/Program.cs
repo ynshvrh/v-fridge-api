@@ -18,8 +18,9 @@ using VFridge.Api.Services;
 // tests in CI/local) win over the .env file.
 DotNetEnv.Env.TraversePath().NoClobber().Load();
 
-// The Drizzle-owned schema uses `timestamp without time zone`. Opt back into the legacy
-// Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
+// The schema (see Migrations/000_initial.sql + 001_auth.sql) uses `timestamp without time
+// zone`. Opt back into the legacy Npgsql DateTime behaviour so DateTime.UtcNow can be stored
+// without manual Kind juggling.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
