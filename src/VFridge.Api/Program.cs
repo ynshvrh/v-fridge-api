@@ -14,7 +14,9 @@ using VFridge.Api.Services;
 // Load .env if present (Dev convenience). Keys use the standard ASP.NET Core
 // section:key form via double underscores — e.g. Email__Password, Jwt__Secret.
 // Walks parent directories so `dotnet run` from src/VFridge.Api or the repo root both work.
-DotNetEnv.Env.TraversePath().Load();
+// NoClobber() so process-level env vars (deployment platforms in prod, integration
+// tests in CI/local) win over the .env file.
+DotNetEnv.Env.TraversePath().NoClobber().Load();
 
 // The Drizzle-owned schema uses `timestamp without time zone`. Opt back into the legacy
 // Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
@@ -40,7 +42,7 @@ var connectionString =
     ?? throw new InvalidOperationException("Connection string 'Default' (or DATABASE_URL env var) is required.");
 
 builder.Services.AddDbContext<VFridgeDbContext>(options =>
-    options.UseNpgsql(NormalizeNpgsqlConnectionString(connectionString)));
+    options.UseNpgsql(NpgsqlConnectionString.Normalize(connectionString)));
 
 // CORS
 const string CorsPolicy = "VFridgeFrontend";
@@ -168,40 +170,5 @@ app.MapChatEndpoints();
 
 app.Run();
 
-// Accept both libpq-style URI ("postgresql://user:pass@host/db?sslmode=require")
-// and standard ADO.NET key=value form. Npgsql 10 accepts URIs natively but we
-// strip non-Npgsql query params (e.g. channel_binding) to avoid parser errors.
-static string NormalizeNpgsqlConnectionString(string raw)
-{
-    if (!raw.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase)
-        && !raw.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
-    {
-        return raw;
-    }
-
-    var uri = new Uri(raw);
-    var userInfo = uri.UserInfo.Split(':', 2);
-    var user = Uri.UnescapeDataString(userInfo[0]);
-    var password = userInfo.Length > 1 ? Uri.UnescapeDataString(userInfo[1]) : "";
-    var database = uri.AbsolutePath.TrimStart('/');
-
-    var sslMode = "Require";
-    foreach (var pair in uri.Query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
-    {
-        var kv = pair.Split('=', 2);
-        if (kv.Length == 2 && kv[0].Equals("sslmode", StringComparison.OrdinalIgnoreCase))
-        {
-            sslMode = kv[1] switch
-            {
-                "require" => "Require",
-                "verify-ca" => "VerifyCA",
-                "verify-full" => "VerifyFull",
-                "disable" => "Disable",
-                _ => "Require"
-            };
-        }
-    }
-
-    var port = uri.Port > 0 ? uri.Port : 5432;
-    return $"Host={uri.Host};Port={port};Database={database};Username={user};Password={password};SslMode={sslMode};Pooling=true;";
-}
+// Exposed so WebApplicationFactory<Program> can boot the app in integration tests.
+public partial class Program { }

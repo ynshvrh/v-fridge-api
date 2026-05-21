@@ -2,4 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/VFridge.Api/VFridge.Api.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/VFridge.Api.Tests/VFridge.Api.Tests.csproj" />
+  </Folder>
 </Solution>
