@@ -9,6 +9,7 @@ public partial class VFridgeDbContext
     public DbSet<EmailVerificationToken> EmailVerificationTokens => Set<EmailVerificationToken>();
     public DbSet<OAuthLogin> OAuthLogins => Set<OAuthLogin>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<ShoppingItem> ShoppingItems => Set<ShoppingItem>();
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -67,6 +68,34 @@ public partial class VFridgeDbContext
 
             entity.HasIndex(e => new { e.Provider, e.ProviderUserId }).IsUnique();
             entity.HasIndex(e => e.UserId).HasDatabaseName("ix_oauth_logins_user");
+
+            entity.HasOne(e => e.User).WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ShoppingItem>(entity =>
+        {
+            entity.ToTable("shopping_items");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
+            entity.Property(e => e.Quantity).HasColumnName("quantity").HasPrecision(10, 2);
+            entity.Property(e => e.Unit).HasColumnName("unit").HasMaxLength(20);
+            entity.Property(e => e.Category)
+                .HasColumnName("category")
+                .HasMaxLength(32)
+                .HasDefaultValue(VFridge.Api.Contracts.ProductCategories.Other);
+            entity.Property(e => e.Checked).HasColumnName("checked");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_shopping_items_user");
+            entity.HasIndex(e => new { e.UserId, e.Checked }).HasDatabaseName("ix_shopping_items_user_checked");
 
             entity.HasOne(e => e.User).WithMany()
                 .HasForeignKey(e => e.UserId)
