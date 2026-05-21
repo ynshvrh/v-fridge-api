@@ -148,8 +148,9 @@ builder.Services.AddOpenApi(options =>
             new() { Name = "Auth",     Description = "Signup, login, refresh, email verification, Google ID-token sign-in." },
             new() { Name = "Products", Description = "Per-user fridge inventory CRUD. All routes require a bearer access token." },
             new() { Name = "Chat",     Description = "AI chef chat. Send and clear history; rate-limited to 5 requests / 60 s per user." },
-            new() { Name = "Shopping", Description = "Per-user shopping list. Mark purchased to convert an item into a product in the fridge." },
-            new() { Name = "Meta",     Description = "Service metadata and health." },
+            new() { Name = "Shopping",  Description = "Per-user shopping list. Mark purchased to convert an item into a product in the fridge." },
+            new() { Name = "Analytics", Description = "Aggregates on the consumption log: most wasted, fastest consumed, weekly trends." },
+            new() { Name = "Meta",      Description = "Service metadata and health." },
         };
         return Task.CompletedTask;
     });
@@ -197,6 +198,7 @@ app.MapAuthEndpoints();
 app.MapProductsEndpoints();
 app.MapChatEndpoints();
 app.MapShoppingEndpoints();
+app.MapAnalyticsEndpoints();
 
 app.Run();
 

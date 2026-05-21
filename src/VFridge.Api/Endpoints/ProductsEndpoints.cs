@@ -116,6 +116,17 @@ public static class ProductsEndpoints
             entity.Name = n.Trim();
         }
         if (req.Description is not null) entity.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+
+        // Quantity going to 0 is a real "I finished this" signal — log it before the row goes away.
+        var quantityDroppedToZero = req.Quantity is { } q0 && q0 <= 0;
+        if (quantityDroppedToZero)
+        {
+            db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ConsumptionStatus.Consumed));
+            db.Products.Remove(entity);
+            await db.SaveChangesAsync(ct);
+            return Results.Ok(new { success = true, removed = true });
+        }
+
         if (req.Quantity is { } q)
         {
             if (q <= 0) return Results.ValidationProblem(new Dictionary<string, string[]>
@@ -145,21 +156,55 @@ public static class ProductsEndpoints
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
 
-        var affected = await db.Products
-            .Where(p => p.Id == id && p.OwnerId == uid)
-            .ExecuteDeleteAsync(ct);
+        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.OwnerId == uid, ct);
+        if (entity is null)
+            return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
-        return affected == 0
-            ? Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" })
-            : Results.Ok(new { success = true });
+        db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ClassifyDelete(entity)));
+        db.Products.Remove(entity);
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { success = true });
     }
 
     private static async Task<IResult> DeleteAllAsync(VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
 
-        var deleted = await db.Products.Where(p => p.OwnerId == uid).ExecuteDeleteAsync(ct);
-        return Results.Ok(new { success = true, deleted });
+        var owned = await db.Products.Where(p => p.OwnerId == uid).ToListAsync(ct);
+        foreach (var p in owned)
+            db.ConsumptionLogs.Add(BuildConsumptionLog(p, ClassifyDelete(p)));
+        db.Products.RemoveRange(owned);
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new { success = true, deleted = owned.Count });
+    }
+
+    private static ConsumptionLog BuildConsumptionLog(Product entity, string status)
+    {
+        int? ageDays = null;
+        if (entity.CreatedAt is { } created)
+            ageDays = (int)Math.Max(0, (DateTime.UtcNow - created).TotalDays);
+
+        return new ConsumptionLog
+        {
+            UserId = entity.OwnerId,
+            ProductName = entity.Name,
+            Quantity = entity.Quantity,
+            Unit = entity.Unit,
+            Category = entity.Category,
+            Status = status,
+            AgeDays = ageDays
+        };
+    }
+
+    private static string ClassifyDelete(Product entity)
+    {
+        // Past-expiry deletions count as expired waste; everything else the user manually
+        // discarded counts as 'wasted'. Quantity-to-zero is a separate path (consumed).
+        if (entity.ExpiryDate is { } exp && exp < DateOnly.FromDateTime(DateTime.UtcNow))
+            return ConsumptionStatus.Expired;
+        return ConsumptionStatus.Wasted;
     }
 
     private static bool TryValidate<T>(T instance, out Dictionary<string, string[]> errors) where T : class
