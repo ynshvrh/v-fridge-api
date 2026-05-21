@@ -49,16 +49,28 @@ builder.Services.AddDbContext<VFridgeDbContext>(options =>
 const string CorsPolicy = "VFridgeFrontend";
 builder.Services.AddCors(options =>
 {
-    var origins = builder.Configuration
+    var corsConfig = builder.Configuration
         .GetSection(CorsOptions.SectionName)
-        .Get<CorsOptions>()
-        ?.AllowedOrigins ?? [];
+        .Get<CorsOptions>() ?? new CorsOptions();
 
     options.AddPolicy(CorsPolicy, policy =>
-        policy.WithOrigins(origins)
-              .AllowAnyHeader()
-              .AllowAnyMethod()
-              .AllowCredentials());
+    {
+        if (corsConfig.AllowAnyOrigin)
+        {
+            // Public bearer-token API: any origin can call, but no credentials are auto-sent.
+            // The CORS spec forbids combining * with AllowCredentials, so we drop credentials here.
+            policy.AllowAnyOrigin()
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        }
+        else
+        {
+            policy.WithOrigins(corsConfig.AllowedOrigins)
+                  .AllowAnyHeader()
+                  .AllowAnyMethod()
+                  .AllowCredentials();
+        }
+    });
 });
 
 // Health checks
