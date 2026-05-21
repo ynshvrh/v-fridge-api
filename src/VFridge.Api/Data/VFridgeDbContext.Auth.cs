@@ -10,6 +10,7 @@ public partial class VFridgeDbContext
     public DbSet<OAuthLogin> OAuthLogins => Set<OAuthLogin>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
     public DbSet<ShoppingItem> ShoppingItems => Set<ShoppingItem>();
+    public DbSet<ConsumptionLog> ConsumptionLogs => Set<ConsumptionLog>();
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -100,6 +101,31 @@ public partial class VFridgeDbContext
             entity.HasOne(e => e.User).WithMany()
                 .HasForeignKey(e => e.UserId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ConsumptionLog>(entity =>
+        {
+            entity.ToTable("consumption_log");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.ProductName).HasColumnName("product_name").HasMaxLength(255);
+            entity.Property(e => e.Quantity).HasColumnName("quantity").HasPrecision(10, 2);
+            entity.Property(e => e.Unit).HasColumnName("unit").HasMaxLength(20);
+            entity.Property(e => e.Category)
+                .HasColumnName("category")
+                .HasMaxLength(32)
+                .HasDefaultValue(VFridge.Api.Contracts.ProductCategories.Other);
+            entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(16);
+            entity.Property(e => e.AgeDays).HasColumnName("age_days");
+            entity.Property(e => e.ConsumedAt)
+                .HasColumnName("consumed_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => new { e.UserId, e.ConsumedAt }).HasDatabaseName("ix_consumption_log_user_consumed_at");
+            entity.HasIndex(e => new { e.UserId, e.Status }).HasDatabaseName("ix_consumption_log_user_status");
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>
