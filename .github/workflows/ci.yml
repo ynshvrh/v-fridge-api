@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    name: build + test
+    # Docker is required for the Testcontainers.PostgreSql fixture used by the integration suite.
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      # Restore + build once for the whole solution.
+      - run: dotnet restore VFridge.Api.slnx
+      - run: dotnet build VFridge.Api.slnx --configuration Release --no-restore
+
+      # Tests boot a postgres:16-alpine container per run via Testcontainers.
+      - run: dotnet test VFridge.Api.slnx --configuration Release --no-build --logger "console;verbosity=normal"
