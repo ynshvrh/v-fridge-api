@@ -8,6 +8,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Ship the SQL migrations alongside the binary so SqlMigrator can find them at startup.
+         Without this they only exist in the project source folder, which works for
+         `dotnet run` but not for `dotnet publish` / a container image. -->
+    <Content Include="Migrations\**\*.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
     <PackageReference Include="DotNetEnv" Version="3.2.0" />
     <PackageReference Include="Google.Apis.Auth" Version="1.74.0" />

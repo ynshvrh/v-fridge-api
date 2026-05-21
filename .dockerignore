@@ -1,0 +1,24 @@
+# Keep local build artifacts and editor noise out of the Docker context.
+**/bin/
+**/obj/
+**/.vs/
+**/.idea/
+**/.vscode/
+**/*.user
+
+# Source control + workflows are not needed at runtime.
+.git
+.github
+
+# Local secrets / dev files. The container reads env vars from the platform.
+.env
+.env.example
+.env.local
+.env.development
+
+# Tests aren't part of the runtime image. The Dockerfile only copies src/.
+tests/
+
+# README and docs.
+README.md
+*.md
