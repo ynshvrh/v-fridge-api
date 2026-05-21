@@ -47,8 +47,17 @@ public static class AuthEndpoints
     {
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
-        var (ok, error, pair) = await auth.LoginAsync(req, ct);
-        return ok ? Results.Ok(pair) : Results.Json(new { error }, statusCode: StatusCodes.Status401Unauthorized);
+        var (ok, code, pair) = await auth.LoginAsync(req, ct);
+        if (ok) return Results.Ok(pair);
+
+        return code switch
+        {
+            AuthService.LoginErrorEmailNotVerified => Results.Json(
+                new { code, error = "Email ще не підтверджено. Перевірте пошту або надішліть лист повторно." },
+                statusCode: StatusCodes.Status403Forbidden),
+            _ => Results.Json(new { code, error = "Невірний email або пароль" },
+                statusCode: StatusCodes.Status401Unauthorized),
+        };
     }
 
     private static async Task<IResult> RefreshAsync(RefreshRequest req, AuthService auth, CancellationToken ct)
@@ -71,13 +80,12 @@ public static class AuthEndpoints
         IOptions<FrontendOptions> frontend,
         CancellationToken ct)
     {
-        var (ok, error) = await auth.VerifyEmailAsync(token, ct);
-
+        // Forward the raw token to the SPA — it'll call POST /auth/verify-email which both
+        // marks the email verified and returns a token pair so the user is auto-logged in.
+        // This avoids double-consuming the one-shot token and keeps tokens out of the URL
+        // visible in browser history (the SPA cleans up after success).
         var baseUrl = frontend.Value.BaseUrl.TrimEnd('/');
-        var redirect = ok
-            ? $"{baseUrl}/verify-email?status=ok"
-            : $"{baseUrl}/verify-email?status=error&reason={Uri.EscapeDataString(error ?? "")}";
-        return Results.Redirect(redirect);
+        return Results.Redirect($"{baseUrl}/verify-email?token={Uri.EscapeDataString(token)}");
     }
 
     private sealed record VerifyEmailRequest(string Token);
@@ -90,10 +98,13 @@ public static class AuthEndpoints
         if (string.IsNullOrWhiteSpace(req.Token))
             return Results.BadRequest(new { error = "Token обов'язковий" });
 
-        var (ok, error) = await auth.VerifyEmailAsync(req.Token, ct);
-        return ok
-            ? Results.Ok(new { success = true })
-            : Results.BadRequest(new { error });
+        var (ok, error, userId) = await auth.VerifyEmailAsync(req.Token, ct);
+        if (!ok || userId is null) return Results.BadRequest(new { error });
+
+        var pair = await auth.IssueTokensForUserAsync(userId.Value, ct);
+        return pair is null
+            ? Results.Problem("Не вдалось видати токени", statusCode: StatusCodes.Status500InternalServerError)
+            : Results.Ok(pair);
     }
 
     private static async Task<IResult> ResendVerificationAsync(ResendVerificationRequest req, AuthService auth, CancellationToken ct)

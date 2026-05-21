@@ -39,12 +39,18 @@ public sealed class AuthService(
         return (true, null, summary);
     }
 
-    public async Task<(bool Ok, string? Error, TokenPair? Tokens)> LoginAsync(LoginRequest req, CancellationToken ct)
+    public const string LoginErrorBadCredentials = "BAD_CREDENTIALS";
+    public const string LoginErrorEmailNotVerified = "EMAIL_NOT_VERIFIED";
+
+    public async Task<(bool Ok, string? ErrorCode, TokenPair? Tokens)> LoginAsync(LoginRequest req, CancellationToken ct)
     {
         var emailNormalized = req.Email.Trim().ToLowerInvariant();
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == emailNormalized, ct);
         if (user is null || !hasher.Verify(req.Password, user.Password))
-            return (false, "Невірний email або пароль", null);
+            return (false, LoginErrorBadCredentials, null);
+
+        var emailVerified = await db.EmailVerifications.AnyAsync(v => v.UserId == user.Id, ct);
+        if (!emailVerified) return (false, LoginErrorEmailNotVerified, null);
 
         var pair = await IssueTokenPairAsync(user, ct);
         return (true, null, pair);
@@ -77,15 +83,15 @@ public sealed class AuthService(
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task<(bool Ok, string? Error)> VerifyEmailAsync(string rawToken, CancellationToken ct)
+    public async Task<(bool Ok, string? Error, int? UserId)> VerifyEmailAsync(string rawToken, CancellationToken ct)
     {
         var hash = tokens.Hash(rawToken);
         var record = await db.EmailVerificationTokens
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
-        if (record is null) return (false, "Токен підтвердження не знайдено");
-        if (record.UsedAt is not null) return (false, "Токен вже використано");
-        if (record.ExpiresAt < DateTime.UtcNow) return (false, "Термін дії токена сплив");
+        if (record is null) return (false, "Токен підтвердження не знайдено", null);
+        if (record.UsedAt is not null) return (false, "Токен вже використано", null);
+        if (record.ExpiresAt < DateTime.UtcNow) return (false, "Термін дії токена сплив", null);
 
         record.UsedAt = DateTime.UtcNow;
 
@@ -100,7 +106,14 @@ public sealed class AuthService(
         }
 
         await db.SaveChangesAsync(ct);
-        return (true, null);
+        return (true, null, record.UserId);
+    }
+
+    /// <summary>Issues a fresh token pair for a known-good user id — used right after email verification.</summary>
+    public async Task<TokenPair?> IssueTokensForUserAsync(int userId, CancellationToken ct)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        return user is null ? null : await IssueTokenPairAsync(user, ct);
     }
 
     public async Task ResendVerificationAsync(string email, CancellationToken ct)
