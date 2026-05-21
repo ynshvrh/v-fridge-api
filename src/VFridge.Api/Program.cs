@@ -106,6 +106,10 @@ builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 builder.Services.AddScoped<AuthService>();
 
+// Daily 09:00 Europe/Kyiv: expiry digests + anti-spam cleanup of unverified accounts.
+builder.Services.AddSingleton<DailyMaintenanceWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<DailyMaintenanceWorker>());
+
 // JWT bearer auth (public stateless API — no cookies)
 var jwtOpts = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new();
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
