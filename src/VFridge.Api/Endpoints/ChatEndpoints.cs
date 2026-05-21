@@ -11,6 +11,8 @@ public static class ChatEndpoints
 {
     private static readonly TimeSpan HistoryWindow = TimeSpan.FromHours(24);
 
+    private sealed record InventoryItem(string Name, decimal Quantity, string Unit, string Category);
+
     public static IEndpointRouteBuilder MapChatEndpoints(this IEndpointRouteBuilder app)
     {
         var group = app.MapGroup("/chat").WithTags("Chat");
@@ -61,6 +63,7 @@ public static class ChatEndpoints
         SendChatRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        VFridge.Api.Services.FridgeContext fridgeContext,
         IAiChatService ai,
         ILogger<Program> logger,
         CancellationToken ct)
@@ -74,12 +77,15 @@ public static class ChatEndpoints
             });
         }
 
+        var resolved = await fridgeContext.ResolveAsync(ct);
         var since = DateTime.UtcNow - HistoryWindow;
 
-        var inventory = await db.Products
-            .Where(p => p.OwnerId == uid)
-            .Select(p => new { p.Name, p.Quantity, p.Unit, p.Category })
-            .ToListAsync(ct);
+        var inventory = resolved is null
+            ? new List<InventoryItem>()
+            : await db.Products
+                .Where(p => p.FridgeId == resolved.Value.FridgeId)
+                .Select(p => new InventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
+                .ToListAsync(ct);
 
         var inventoryStr = inventory.Count > 0
             ? string.Join(", ", inventory.Select(p =>

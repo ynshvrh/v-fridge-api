@@ -59,6 +59,7 @@ public partial class VFridgeDbContext : DbContext
                 .HasMaxLength(255)
                 .HasColumnName("name");
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
             entity.Property(e => e.Quantity)
                 .HasPrecision(10, 2)
                 .HasColumnName("quantity");
@@ -73,6 +74,12 @@ public partial class VFridgeDbContext : DbContext
             entity.HasOne(d => d.Owner).WithMany(p => p.Products)
                 .HasForeignKey(d => d.OwnerId)
                 .HasConstraintName("products_owner_id_fkey");
+
+            entity.HasOne(d => d.Fridge).WithMany()
+                .HasForeignKey(d => d.FridgeId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.FridgeId).HasDatabaseName("ix_products_fridge");
         });
 
         modelBuilder.Entity<User>(entity =>

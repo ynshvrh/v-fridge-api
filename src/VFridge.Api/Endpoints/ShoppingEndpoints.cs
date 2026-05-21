@@ -4,6 +4,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
 namespace VFridge.Api.Endpoints;
 
@@ -150,9 +151,12 @@ public static class ShoppingEndpoints
         PurchaseShoppingItemRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         var item = await db.ShoppingItems.FirstOrDefaultAsync(i => i.Id == id && i.UserId == uid, ct);
         if (item is null) return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
@@ -164,7 +168,8 @@ public static class ShoppingEndpoints
             Unit = string.IsNullOrWhiteSpace(item.Unit) ? "pcs" : item.Unit!,
             Category = item.Category,
             ExpiryDate = req.ExpiryDate,
-            OwnerId = uid
+            OwnerId = uid,
+            FridgeId = resolved.Value.FridgeId
         };
 
         db.Products.Add(product);

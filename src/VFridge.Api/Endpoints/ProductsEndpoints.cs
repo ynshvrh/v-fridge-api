@@ -4,6 +4,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
 namespace VFridge.Api.Endpoints;
 
@@ -15,22 +16,21 @@ public static class ProductsEndpoints
 
         group.MapGet("/", ListAsync)
             .WithName("ListProducts")
-            .WithSummary("List the caller's products")
-            .WithDescription("Ordered by expiry date ascending. Owned by the bearer-token user.")
+            .WithSummary("List the active fridge's products")
+            .WithDescription("Ordered by expiry date ascending. Uses the X-Fridge-Id header to pick a fridge or falls back to the caller's first owned fridge.")
             .Produces<List<ProductResponse>>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
         group.MapPost("/", CreateAsync)
             .WithName("CreateProduct")
-            .WithSummary("Add a new product to the caller's fridge")
+            .WithSummary("Add a new product to the active fridge")
             .Produces<ProductResponse>(StatusCodes.Status201Created)
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesValidationProblem();
 
         group.MapPatch("/{id:int}", UpdateAsync)
             .WithName("UpdateProduct")
-            .WithSummary("Patch one of the caller's products")
-            .WithDescription("Only fields supplied in the body are updated; the rest stay as they are.")
+            .WithSummary("Patch a product in the active fridge")
             .Produces<ProductResponse>(StatusCodes.Status200OK)
             .Produces<ApiError>(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status401Unauthorized)
@@ -38,26 +38,27 @@ public static class ProductsEndpoints
 
         group.MapDelete("/{id:int}", DeleteAsync)
             .WithName("DeleteProduct")
-            .WithSummary("Delete one of the caller's products")
+            .WithSummary("Delete a product in the active fridge")
             .Produces(StatusCodes.Status200OK)
             .Produces<ApiError>(StatusCodes.Status404NotFound)
             .Produces(StatusCodes.Status401Unauthorized);
 
         group.MapDelete("/", DeleteAllAsync)
             .WithName("DeleteAllProducts")
-            .WithSummary("Empty the caller's fridge")
+            .WithSummary("Empty the active fridge")
             .Produces(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
         return app;
     }
 
-    private static async Task<IResult> ListAsync(VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> ListAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         var items = await db.Products
-            .Where(p => p.OwnerId == uid)
+            .Where(p => p.FridgeId == resolved.Value.FridgeId)
             .OrderBy(p => p.ExpiryDate)
             .Select(p => new ProductResponse(p.Id, p.Name, p.Description, p.Quantity, p.Unit, p.ExpiryDate, p.Category, p.OwnerId, p.CreatedAt))
             .ToListAsync(ct);
@@ -69,9 +70,11 @@ public static class ProductsEndpoints
         CreateProductRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null || me.UserId is not int uid) return Results.Unauthorized();
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
@@ -85,7 +88,8 @@ public static class ProductsEndpoints
             Unit = req.Unit,
             ExpiryDate = req.ExpiryDate,
             Category = category,
-            OwnerId = uid
+            OwnerId = uid,
+            FridgeId = resolved.Value.FridgeId
         };
 
         db.Products.Add(entity);
@@ -99,12 +103,13 @@ public static class ProductsEndpoints
         int id,
         UpdateProductRequest req,
         VFridgeDbContext db,
-        ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
-        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.OwnerId == uid, ct);
+        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
         if (entity is null) return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
         if (req.Name is { } n)
@@ -152,11 +157,12 @@ public static class ProductsEndpoints
         return Results.Ok(resp);
     }
 
-    private static async Task<IResult> DeleteAsync(int id, VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> DeleteAsync(int id, VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
-        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.OwnerId == uid, ct);
+        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
         if (entity is null)
             return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
@@ -167,11 +173,12 @@ public static class ProductsEndpoints
         return Results.Ok(new { success = true });
     }
 
-    private static async Task<IResult> DeleteAllAsync(VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> DeleteAllAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
-        var owned = await db.Products.Where(p => p.OwnerId == uid).ToListAsync(ct);
+        var owned = await db.Products.Where(p => p.FridgeId == resolved.Value.FridgeId).ToListAsync(ct);
         foreach (var p in owned)
             db.ConsumptionLogs.Add(BuildConsumptionLog(p, ClassifyDelete(p)));
         db.Products.RemoveRange(owned);
@@ -200,8 +207,6 @@ public static class ProductsEndpoints
 
     private static string ClassifyDelete(Product entity)
     {
-        // Past-expiry deletions count as expired waste; everything else the user manually
-        // discarded counts as 'wasted'. Quantity-to-zero is a separate path (consumed).
         if (entity.ExpiryDate is { } exp && exp < DateOnly.FromDateTime(DateTime.UtcNow))
             return ConsumptionStatus.Expired;
         return ConsumptionStatus.Wasted;
