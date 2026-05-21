@@ -50,7 +50,7 @@ public static class ChatEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["content"] = ["Повідомлення не може бути порожнім"]
+                ["content"] = ["Message cannot be empty"]
             });
         }
 
@@ -63,7 +63,7 @@ public static class ChatEndpoints
 
         var inventoryStr = inventory.Count > 0
             ? string.Join(", ", inventory)
-            : "Холодильник порожній";
+            : "The fridge is empty";
 
         var history = await db.Chats
             .Where(c => c.UserId == uid && c.CreatedAt >= since)
@@ -85,7 +85,7 @@ public static class ChatEndpoints
         {
             logger.LogError(ex, "AI call failed");
             return Results.Problem(
-                title: "⚠️ Сталася внутрішня помилка сервісу.",
+                title: "An internal service error occurred.",
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
@@ -99,7 +99,7 @@ public static class ChatEndpoints
         {
             UserId = uid,
             Role = "assistant",
-            Content = string.IsNullOrWhiteSpace(aiText) ? "Вибачте, я не зміг сформувати відповідь." : aiText
+            Content = string.IsNullOrWhiteSpace(aiText) ? "Sorry, I couldn't compose a reply." : aiText
         };
         db.Chats.Add(assistantMsg);
 

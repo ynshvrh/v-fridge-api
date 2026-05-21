@@ -12,10 +12,10 @@ public sealed class OpenRouterChatService(
     ILogger<OpenRouterChatService> logger) : IAiChatService
 {
     private const string SystemPrompt =
-        "Ти шеф-кухар V-Fridge. Твоя задача — дати швидкий, смачний і реалістичний рецепт " +
-        "українською мовою на основі продуктів, які зараз є у користувача. " +
-        "Будь стислим: короткий список інгредієнтів і кроки приготування. Якщо продуктів немає " +
-        "— запропонуй простий мінімальний набір, який треба докупити.";
+        "You are the V-Fridge chef. Your job is to suggest a quick, tasty, and realistic recipe " +
+        "in English based on the items the user currently has. " +
+        "Be concise: a short ingredient list and a few cooking steps. If the fridge is empty, " +
+        "suggest a simple minimal set of items to buy.";
 
     private readonly OpenRouterOptions _opts = options.Value;
 
@@ -28,13 +28,13 @@ public sealed class OpenRouterChatService(
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
         {
             logger.LogWarning("OpenRouter ApiKey is not configured");
-            return "⚠️ AI-кухар тимчасово недоступний (немає API-ключа).";
+            return "The AI chef is temporarily unavailable (no API key configured).";
         }
 
         var messages = new List<ChatMessage>
         {
             new("system", SystemPrompt),
-            new("system", $"Поточний інвентар: {fridgeInventory}")
+            new("system", $"Current inventory: {fridgeInventory}")
         };
 
         foreach (var (role, content) in history)

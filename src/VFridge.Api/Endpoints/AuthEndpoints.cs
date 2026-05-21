@@ -38,7 +38,7 @@ public static class AuthEndpoints
             ? Results.Created("/auth/me", new
             {
                 user,
-                message = "Акаунт створено. Перевірте пошту — ми надіслали лист для підтвердження."
+                message = "Account created. Check your inbox — we sent a confirmation email."
             })
             : Results.BadRequest(new { error });
     }
@@ -53,9 +53,9 @@ public static class AuthEndpoints
         return code switch
         {
             AuthService.LoginErrorEmailNotVerified => Results.Json(
-                new { code, error = "Email ще не підтверджено. Перевірте пошту або надішліть лист повторно." },
+                new { code, error = "Email is not verified yet. Check your inbox or request a new email." },
                 statusCode: StatusCodes.Status403Forbidden),
-            _ => Results.Json(new { code, error = "Невірний email або пароль" },
+            _ => Results.Json(new { code, error = "Invalid email or password" },
                 statusCode: StatusCodes.Status401Unauthorized),
         };
     }
@@ -96,14 +96,14 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Token))
-            return Results.BadRequest(new { error = "Token обов'язковий" });
+            return Results.BadRequest(new { error = "Token is required" });
 
         var (ok, error, userId) = await auth.VerifyEmailAsync(req.Token, ct);
         if (!ok || userId is null) return Results.BadRequest(new { error });
 
         var pair = await auth.IssueTokensForUserAsync(userId.Value, ct);
         return pair is null
-            ? Results.Problem("Не вдалось видати токени", statusCode: StatusCodes.Status500InternalServerError)
+            ? Results.Problem("Failed to issue tokens", statusCode: StatusCodes.Status500InternalServerError)
             : Results.Ok(pair);
     }
 
@@ -124,7 +124,7 @@ public static class AuthEndpoints
     {
         var clientId = google.Value.ClientId;
         if (string.IsNullOrWhiteSpace(clientId))
-            return Results.Problem("Google OAuth не налаштовано", statusCode: StatusCodes.Status503ServiceUnavailable);
+            return Results.Problem("Google OAuth is not configured", statusCode: StatusCodes.Status503ServiceUnavailable);
 
         GoogleJsonWebSignature.Payload payload;
         try
@@ -134,11 +134,11 @@ public static class AuthEndpoints
         }
         catch (InvalidJwtException)
         {
-            return Results.Json(new { error = "Невалідний Google токен" }, statusCode: StatusCodes.Status401Unauthorized);
+            return Results.Json(new { error = "Invalid Google token" }, statusCode: StatusCodes.Status401Unauthorized);
         }
 
         if (string.IsNullOrWhiteSpace(payload.Email) || payload.EmailVerified != true)
-            return Results.BadRequest(new { error = "Google не підтвердив email" });
+            return Results.BadRequest(new { error = "Google did not confirm the email" });
 
         var pair = await auth.SignInWithGoogleAsync(payload.Subject, payload.Email, payload.Name, ct);
         return Results.Ok(pair);
