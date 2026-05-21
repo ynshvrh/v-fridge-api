@@ -128,8 +128,27 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     });
 builder.Services.AddAuthorization();
 
-// OpenAPI (.NET 10 built-in)
-builder.Services.AddOpenApi();
+// OpenAPI (.NET 10 built-in) — tag descriptions + a friendly Info block
+builder.Services.AddOpenApi(options =>
+{
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Info.Title = "V-Fridge API";
+        document.Info.Version = "v1";
+        document.Info.Description =
+            "Public stateless REST API for V-Fridge: auth (email + password, Google ID token, refresh-token rotation), " +
+            "per-user product inventory, and AI chef chat. Every error response follows the same `{ code, error }` shape; " +
+            "`code` is a stable machine-readable identifier (e.g. `EMAIL_NOT_VERIFIED`).";
+        document.Tags = new HashSet<Microsoft.OpenApi.OpenApiTag>
+        {
+            new() { Name = "Auth",     Description = "Signup, login, refresh, email verification, Google ID-token sign-in." },
+            new() { Name = "Products", Description = "Per-user fridge inventory CRUD. All routes require a bearer access token." },
+            new() { Name = "Chat",     Description = "AI chef chat. Send and clear history; rate-limited to 5 requests / 60 s per user." },
+            new() { Name = "Meta",     Description = "Service metadata and health." },
+        };
+        return Task.CompletedTask;
+    });
+});
 
 builder.Services.AddProblemDetails();
 
@@ -161,9 +180,13 @@ app.MapGet("/", () => Results.Ok(new
         docs = "/openapi/v1.json"
     }))
     .WithName("Root")
+    .WithSummary("Service metadata")
     .WithTags("Meta");
 
-app.MapHealthChecks("/health");
+app.MapHealthChecks("/health")
+    .WithName("Health")
+    .WithSummary("Liveness + DbContext check")
+    .WithTags("Meta");
 
 app.MapAuthEndpoints();
 app.MapProductsEndpoints();

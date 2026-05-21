@@ -15,9 +15,29 @@ public static class ChatEndpoints
     {
         var group = app.MapGroup("/chat").WithTags("Chat");
 
-        group.MapGet("/", GetHistoryAsync);
-        group.MapPost("/", SendAsync).RequireRateLimiting("chat");
-        group.MapDelete("/", ClearAsync);
+        group.MapGet("/", GetHistoryAsync)
+            .WithName("GetChatHistory")
+            .WithSummary("Last 24 h of chat for the caller")
+            .WithDescription("Returns up to 20 messages from the last 24 hours, oldest first.")
+            .Produces<List<ChatMessageResponse>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
+
+        group.MapPost("/", SendAsync)
+            .RequireRateLimiting("chat")
+            .WithName("SendChatMessage")
+            .WithSummary("Ask the AI chef")
+            .WithDescription("Sends a user message, asks the configured AI provider for a reply, persists both. Rate-limited to 5 requests per 60 s per user; the 6th returns 429 with code RATE_LIMITED.")
+            .Produces<ChatMessageResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .Produces(StatusCodes.Status502BadGateway)
+            .ProducesValidationProblem();
+
+        group.MapDelete("/", ClearAsync)
+            .WithName("ClearChatHistory")
+            .WithSummary("Delete the caller's chat history")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
 
         return app;
     }
