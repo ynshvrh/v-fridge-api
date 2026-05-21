@@ -21,6 +21,7 @@ public static class AuthEndpoints
         group.MapPost("/refresh", RefreshAsync);
         group.MapPost("/logout", LogoutAsync);
         group.MapGet("/verify-email", VerifyEmailAsync);
+        group.MapPost("/verify-email", VerifyEmailJsonAsync);
         group.MapPost("/resend-verification", ResendVerificationAsync);
         group.MapPost("/google", GoogleSignInAsync);
         group.MapGet("/me", GetMeAsync).RequireAuthorization();
@@ -74,9 +75,25 @@ public static class AuthEndpoints
 
         var baseUrl = frontend.Value.BaseUrl.TrimEnd('/');
         var redirect = ok
-            ? $"{baseUrl}/signin?verified=1"
-            : $"{baseUrl}/signin?verified=0&reason={Uri.EscapeDataString(error ?? "")}";
+            ? $"{baseUrl}/verify-email?status=ok"
+            : $"{baseUrl}/verify-email?status=error&reason={Uri.EscapeDataString(error ?? "")}";
         return Results.Redirect(redirect);
+    }
+
+    private sealed record VerifyEmailRequest(string Token);
+
+    private static async Task<IResult> VerifyEmailJsonAsync(
+        VerifyEmailRequest req,
+        AuthService auth,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(req.Token))
+            return Results.BadRequest(new { error = "Token обов'язковий" });
+
+        var (ok, error) = await auth.VerifyEmailAsync(req.Token, ct);
+        return ok
+            ? Results.Ok(new { success = true })
+            : Results.BadRequest(new { error });
     }
 
     private static async Task<IResult> ResendVerificationAsync(ResendVerificationRequest req, AuthService auth, CancellationToken ct)
