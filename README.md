@@ -12,7 +12,7 @@ This service replaces the in-process Next.js API routes and exposes a typed REST
 * **ORM:** EF Core 10 (Npgsql) — **DB-first**, models scaffolded from the existing Neon Postgres schema
 * **Auth:** JWT bearer + HttpOnly refresh cookie, Google OAuth, email verification (planned in `feat/auth`)
 * **Mail:** MailKit (SMTP) — planned in `feat/auth`
-* **AI:** Google Gemini — planned in `feat/products-chat-endpoints`
+* **AI:** OpenRouter (OpenAI-compatible chat completions, configurable model)
 * **Docs:** Built-in OpenAPI at `/openapi/v1.json`
 * **Health:** `/health` (DbContext check)
 
@@ -51,7 +51,8 @@ All settings live under sections in `appsettings.json` and can be overridden via
 | `Jwt:Secret`                               | ≥32 char random (HS256 signing key)            |
 | `Email:SmtpHost` / `Username` / `Password` | MailKit SMTP (e.g. Gmail app password)         |
 | `Google:ClientId` / `ClientSecret`         | Google OAuth credentials                       |
-| `Gemini:ApiKey`                            | Google AI Studio key                           |
+| `OpenRouter:ApiKey`                        | OpenRouter API key (https://openrouter.ai)     |
+| `OpenRouter:Model`                         | Default model id (e.g. `openai/gpt-4o-mini`)   |
 | `Frontend:BaseUrl`                         | Used in email verification links + CORS origin |
 | `Cors:AllowedOrigins`                      | Array of allowed front-end origins             |
 
@@ -61,7 +62,7 @@ All settings live under sections in `appsettings.json` and can be overridden via
 cd src/VFridge.Api
 dotnet user-secrets set "ConnectionStrings:Default" "Host=…;Database=…;Username=…;Password=…;SslMode=Require"
 dotnet user-secrets set "Jwt:Secret" "$(openssl rand -base64 48)"
-dotnet user-secrets set "Gemini:ApiKey" "…"
+dotnet user-secrets set "OpenRouter:ApiKey" "sk-or-v1-…"
 dotnet user-secrets set "Email:Username" "…"
 dotnet user-secrets set "Email:Password" "…"
 dotnet user-secrets set "Google:ClientId" "…"
