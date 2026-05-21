@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using VFridge.Api.Contracts;
 
 namespace VFridge.Api.Data.Entities;
 
@@ -20,6 +21,8 @@ public partial class Product
     public int OwnerId { get; set; }
 
     public DateTime? CreatedAt { get; set; }
+
+    public string Category { get; set; } = ProductCategories.Other;
 
     public virtual User Owner { get; set; } = null!;
 }

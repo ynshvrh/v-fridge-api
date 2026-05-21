@@ -59,7 +59,7 @@ public static class ProductsEndpoints
         var items = await db.Products
             .Where(p => p.OwnerId == uid)
             .OrderBy(p => p.ExpiryDate)
-            .Select(p => new ProductResponse(p.Id, p.Name, p.Description, p.Quantity, p.Unit, p.ExpiryDate, p.OwnerId, p.CreatedAt))
+            .Select(p => new ProductResponse(p.Id, p.Name, p.Description, p.Quantity, p.Unit, p.ExpiryDate, p.Category, p.OwnerId, p.CreatedAt))
             .ToListAsync(ct);
 
         return Results.Ok(items);
@@ -75,6 +75,8 @@ public static class ProductsEndpoints
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
+        var category = req.Category is { } c && ProductCategories.IsValid(c) ? c : ProductCategories.Other;
+
         var entity = new Product
         {
             Name = req.Name.Trim(),
@@ -82,13 +84,14 @@ public static class ProductsEndpoints
             Quantity = req.Quantity,
             Unit = req.Unit,
             ExpiryDate = req.ExpiryDate,
+            Category = category,
             OwnerId = uid
         };
 
         db.Products.Add(entity);
         await db.SaveChangesAsync(ct);
 
-        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.OwnerId, entity.CreatedAt);
+        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);
         return Results.Created($"/products/{entity.Id}", resp);
     }
 
@@ -123,9 +126,18 @@ public static class ProductsEndpoints
         }
         if (req.Unit is { } u) entity.Unit = u;
         if (req.ExpiryDate is { } d) entity.ExpiryDate = d;
+        if (req.Category is { } cat)
+        {
+            if (!ProductCategories.IsValid(cat))
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["category"] = ["Unknown category"]
+                });
+            entity.Category = cat;
+        }
 
         await db.SaveChangesAsync(ct);
-        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.OwnerId, entity.CreatedAt);
+        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);
         return Results.Ok(resp);
     }
 

@@ -9,6 +9,7 @@ public sealed record ProductResponse(
     decimal Quantity,
     string Unit,
     DateOnly? ExpiryDate,
+    string Category,
     int OwnerId,
     DateTime? CreatedAt);
 
@@ -19,11 +20,13 @@ public sealed record CreateProductRequest(
     [property: Range(0.01, 1_000_000, ErrorMessage = "Quantity must be greater than 0")]
     decimal Quantity,
     [property: Required] string Unit,
-    DateOnly? ExpiryDate);
+    DateOnly? ExpiryDate,
+    string? Category);
 
 public sealed record UpdateProductRequest(
     string? Name,
     string? Description,
     decimal? Quantity,
     string? Unit,
-    DateOnly? ExpiryDate);
+    DateOnly? ExpiryDate,
+    string? Category);
