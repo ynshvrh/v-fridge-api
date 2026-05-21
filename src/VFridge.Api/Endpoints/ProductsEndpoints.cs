@@ -13,11 +13,41 @@ public static class ProductsEndpoints
     {
         var group = app.MapGroup("/products").WithTags("Products");
 
-        group.MapGet("/", ListAsync);
-        group.MapPost("/", CreateAsync);
-        group.MapPatch("/{id:int}", UpdateAsync);
-        group.MapDelete("/{id:int}", DeleteAsync);
-        group.MapDelete("/", DeleteAllAsync);
+        group.MapGet("/", ListAsync)
+            .WithName("ListProducts")
+            .WithSummary("List the caller's products")
+            .WithDescription("Ordered by expiry date ascending. Owned by the bearer-token user.")
+            .Produces<List<ProductResponse>>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
+
+        group.MapPost("/", CreateAsync)
+            .WithName("CreateProduct")
+            .WithSummary("Add a new product to the caller's fridge")
+            .Produces<ProductResponse>(StatusCodes.Status201Created)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesValidationProblem();
+
+        group.MapPatch("/{id:int}", UpdateAsync)
+            .WithName("UpdateProduct")
+            .WithSummary("Patch one of the caller's products")
+            .WithDescription("Only fields supplied in the body are updated; the rest stay as they are.")
+            .Produces<ProductResponse>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesValidationProblem();
+
+        group.MapDelete("/{id:int}", DeleteAsync)
+            .WithName("DeleteProduct")
+            .WithSummary("Delete one of the caller's products")
+            .Produces(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status401Unauthorized);
+
+        group.MapDelete("/", DeleteAllAsync)
+            .WithName("DeleteAllProducts")
+            .WithSummary("Empty the caller's fridge")
+            .Produces(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
 
         return app;
     }

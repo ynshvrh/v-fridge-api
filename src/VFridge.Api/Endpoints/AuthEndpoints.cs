@@ -16,15 +16,71 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/auth").WithTags("Auth");
 
-        group.MapPost("/signup", SignUpAsync);
-        group.MapPost("/login", LoginAsync);
-        group.MapPost("/refresh", RefreshAsync);
-        group.MapPost("/logout", LogoutAsync);
-        group.MapGet("/verify-email", VerifyEmailAsync);
-        group.MapPost("/verify-email", VerifyEmailJsonAsync);
-        group.MapPost("/resend-verification", ResendVerificationAsync);
-        group.MapPost("/google", GoogleSignInAsync);
-        group.MapGet("/me", GetMeAsync).RequireAuthorization();
+        group.MapPost("/signup", SignUpAsync)
+            .WithName("Signup")
+            .WithSummary("Create a new account")
+            .WithDescription("Creates a user, sends a verification email, and returns the user summary. The account is unusable until the email is verified.")
+            .Produces(StatusCodes.Status201Created)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest)
+            .ProducesValidationProblem();
+
+        group.MapPost("/login", LoginAsync)
+            .WithName("Login")
+            .WithSummary("Email + password sign-in")
+            .WithDescription("Returns a TokenPair on success. Returns 403 EMAIL_NOT_VERIFIED if the account exists but the email has not been confirmed yet, or 401 BAD_CREDENTIALS otherwise.")
+            .Produces<TokenPair>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status401Unauthorized)
+            .Produces<ApiError>(StatusCodes.Status403Forbidden)
+            .ProducesValidationProblem();
+
+        group.MapPost("/refresh", RefreshAsync)
+            .WithName("Refresh")
+            .WithSummary("Rotate the refresh token")
+            .WithDescription("Exchanges the supplied refresh token for a fresh pair. The presented refresh token is revoked atomically.")
+            .Produces<TokenPair>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status401Unauthorized)
+            .ProducesValidationProblem();
+
+        group.MapPost("/logout", LogoutAsync)
+            .WithName("Logout")
+            .WithSummary("Revoke a refresh token")
+            .WithDescription("Best-effort: returns 200 regardless of whether the token was active.")
+            .Produces(StatusCodes.Status200OK);
+
+        group.MapGet("/verify-email", VerifyEmailAsync)
+            .WithName("VerifyEmailRedirect")
+            .WithSummary("Email-link landing endpoint")
+            .WithDescription("Redirects the verification link from the email straight to the SPA's /verify-email page so the SPA can exchange the token via POST. Avoids consuming the one-shot token from a non-browser preview.")
+            .Produces(StatusCodes.Status302Found);
+
+        group.MapPost("/verify-email", VerifyEmailJsonAsync)
+            .WithName("VerifyEmail")
+            .WithSummary("Exchange a verification token for a session")
+            .WithDescription("On success, marks the email verified and returns a TokenPair (auto-login). Error codes: TOKEN_MISSING, TOKEN_NOT_FOUND, TOKEN_USED, TOKEN_EXPIRED.")
+            .Produces<TokenPair>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest);
+
+        group.MapPost("/resend-verification", ResendVerificationAsync)
+            .WithName("ResendVerification")
+            .WithSummary("Resend the verification email")
+            .WithDescription("Always returns 200 to avoid leaking whether an account with the given email exists.")
+            .Produces(StatusCodes.Status200OK)
+            .ProducesValidationProblem();
+
+        group.MapPost("/google", GoogleSignInAsync)
+            .WithName("GoogleSignIn")
+            .WithSummary("Sign in with a Google ID token")
+            .WithDescription("Validates the ID token against the configured client ID, then issues a TokenPair. Creates the user on first sign-in.")
+            .Produces<TokenPair>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest)
+            .Produces<ApiError>(StatusCodes.Status401Unauthorized);
+
+        group.MapGet("/me", GetMeAsync)
+            .RequireAuthorization()
+            .WithName("GetMe")
+            .WithSummary("Current authenticated user")
+            .Produces<UserSummary>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized);
 
         return app;
     }

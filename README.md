@@ -111,6 +111,78 @@ Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
 
 ---
 
+## Quick walkthrough (curl)
+
+A minimal end-to-end signup → verify → login → products flow. Replace `BASE`, `EMAIL`, `PASSWORD`, and the verification token where shown.
+
+```bash
+BASE=http://localhost:5080
+
+# 1. Sign up. The server emails a verification link.
+curl -sS -X POST "$BASE/auth/signup" \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"yanosh","email":"you@example.com","password":"hunter22!"}'
+
+# 2. Login without verifying → 403 EMAIL_NOT_VERIFIED.
+curl -sS -i -X POST "$BASE/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"hunter22!"}'
+
+# 3. Click the link in the email → SPA exchanges the token via POST /auth/verify-email.
+# Or, if you are testing without a real inbox, grab the token straight from the DB:
+TOKEN=$(psql "$DATABASE_URL" -tA -c "SELECT token_hash FROM email_verification_tokens ORDER BY created_at DESC LIMIT 1")
+# (token_hash is hashed; for a real curl flow you need the raw token from the email)
+curl -sS -X POST "$BASE/auth/verify-email" \
+  -H 'Content-Type: application/json' \
+  -d "{\"token\":\"<raw-token-from-email>\"}"
+
+# 4. Login now returns a TokenPair.
+ACCESS=$(curl -sS -X POST "$BASE/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"you@example.com","password":"hunter22!"}' \
+  | jq -r .accessToken)
+
+# 5. Create a product.
+curl -sS -X POST "$BASE/products" \
+  -H "Authorization: Bearer $ACCESS" \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Milk","quantity":1,"unit":"l","expiryDate":"2026-06-01"}'
+
+# 6. List products.
+curl -sS "$BASE/products" -H "Authorization: Bearer $ACCESS"
+
+# 7. Ask the chef.
+curl -sS -X POST "$BASE/chat" \
+  -H "Authorization: Bearer $ACCESS" \
+  -H 'Content-Type: application/json' \
+  -d '{"content":"What can I cook with what I have?"}'
+```
+
+### Error envelope
+
+Every non-validation error returns the same JSON shape:
+
+```json
+{ "code": "EMAIL_NOT_VERIFIED", "error": "Email is not verified yet. Check your inbox or request a new email." }
+```
+
+Branch your client on `code` (stable, machine-readable). `error` is the English fallback message.
+
+| Code | Where | Meaning |
+| --- | --- | --- |
+| `EMAIL_EXISTS` | `POST /auth/signup` | Address already registered. |
+| `EMAIL_NOT_VERIFIED` | `POST /auth/login` | Account exists but the email is unconfirmed. |
+| `BAD_CREDENTIALS` | `POST /auth/login` | Wrong email or password. |
+| `REFRESH_INVALID` | `POST /auth/refresh` | Token unknown / expired / revoked. |
+| `TOKEN_MISSING` / `TOKEN_NOT_FOUND` / `TOKEN_USED` / `TOKEN_EXPIRED` | `POST /auth/verify-email` | Email verification failure modes. |
+| `GOOGLE_TOKEN_INVALID` / `GOOGLE_EMAIL_UNVERIFIED` | `POST /auth/google` | Google ID-token rejected. |
+| `PRODUCT_NOT_FOUND` | `PATCH/DELETE /products/{id}` | No row for that id owned by the caller. |
+| `RATE_LIMITED` | `POST /chat` | 6th call within the 60 s window. |
+
+Validation errors (e.g. wrong DTO shape) come back as RFC 7807 `ProblemDetails` with an `errors` dictionary, not the `{code, error}` envelope.
+
+---
+
 ## Database
 
 The schema lives in this repo as plain `.sql` migrations under `src/VFridge.Api/Migrations/`:
