@@ -1,2 +1,116 @@
-# v-fridge-api
-ASP.NET Core REST API for V-Fridge — food management system with AI suggestions
+# V-Fridge API
+
+ASP.NET Core Minimal API (.NET 10) for **V-Fridge** — the food management system with AI-chef suggestions.
+
+This service replaces the in-process Next.js API routes and exposes a typed REST surface for products, chat, and authentication (JWT cookies + Google OAuth + email verification).
+
+---
+
+## Tech stack
+
+* **Runtime:** .NET 10, ASP.NET Core Minimal API
+* **ORM:** EF Core 10 (Npgsql) — **DB-first**, models scaffolded from the existing Neon Postgres schema
+* **Auth:** JWT bearer + HttpOnly refresh cookie, Google OAuth, email verification (planned in `feat/auth`)
+* **Mail:** MailKit (SMTP) — planned in `feat/auth`
+* **AI:** Google Gemini — planned in `feat/products-chat-endpoints`
+* **Docs:** Built-in OpenAPI at `/openapi/v1.json`
+* **Health:** `/health` (DbContext check)
+
+---
+
+## Project layout
+
+```
+src/
+└── VFridge.Api/
+    ├── Configuration/       # Strongly-typed options (Jwt, Email, Cors, …)
+    ├── Data/                # EF Core DbContext + entities (scaffolded)
+    │   └── Entities/
+    ├── Program.cs           # App composition root
+    ├── appsettings.json     # Defaults (no secrets)
+    └── Properties/
+        └── launchSettings.json
+```
+
+---
+
+## Configuration
+
+All settings live under sections in `appsettings.json` and can be overridden via:
+
+1. `appsettings.Development.json` (committed, no secrets)
+2. **User secrets** in Development (`dotnet user-secrets`) — recommended for local
+3. Environment variables (`Jwt__Secret`, `ConnectionStrings__Default`, …)
+4. The libpq URI form `DATABASE_URL=postgresql://…` is auto-normalised at startup
+
+### Required keys
+
+| Section / key                              | Notes                                          |
+| ------------------------------------------ | ---------------------------------------------- |
+| `ConnectionStrings:Default`                | Npgsql or `postgresql://…` URI                 |
+| `Jwt:Secret`                               | ≥32 char random (HS256 signing key)            |
+| `Email:SmtpHost` / `Username` / `Password` | MailKit SMTP (e.g. Gmail app password)         |
+| `Google:ClientId` / `ClientSecret`         | Google OAuth credentials                       |
+| `Gemini:ApiKey`                            | Google AI Studio key                           |
+| `Frontend:BaseUrl`                         | Used in email verification links + CORS origin |
+| `Cors:AllowedOrigins`                      | Array of allowed front-end origins             |
+
+### Quick local setup
+
+```bash
+cd src/VFridge.Api
+dotnet user-secrets set "ConnectionStrings:Default" "Host=…;Database=…;Username=…;Password=…;SslMode=Require"
+dotnet user-secrets set "Jwt:Secret" "$(openssl rand -base64 48)"
+dotnet user-secrets set "Gemini:ApiKey" "…"
+dotnet user-secrets set "Email:Username" "…"
+dotnet user-secrets set "Email:Password" "…"
+dotnet user-secrets set "Google:ClientId" "…"
+dotnet user-secrets set "Google:ClientSecret" "…"
+```
+
+---
+
+## Run
+
+```bash
+dotnet restore
+dotnet build
+dotnet run --project src/VFridge.Api
+```
+
+Defaults:
+
+| Endpoint                | Purpose             |
+| ----------------------- | ------------------- |
+| `GET /`                 | Service metadata    |
+| `GET /health`           | Liveness + DB check |
+| `GET /openapi/v1.json`  | OpenAPI 3 document  |
+
+Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
+
+---
+
+## Database
+
+The schema is owned by Drizzle in the [`V-Fridge`](https://github.com/ynshvrh/V-Fridge) Next.js repo. EF Core consumes the same Neon Postgres database — no migrations are produced here.
+
+To re-scaffold after Drizzle changes:
+
+```bash
+cd src/VFridge.Api
+dotnet ef dbcontext scaffold "<Npgsql connection string>" \
+  Npgsql.EntityFrameworkCore.PostgreSQL \
+  --output-dir Data/Entities --context-dir Data --context VFridgeDbContext --force --no-onconfiguring
+```
+
+---
+
+## Branch / PR workflow
+
+Each major chunk lands via its own branch + PR (no direct commits to `main`):
+
+| Branch                              | Scope                                              |
+| ----------------------------------- | -------------------------------------------------- |
+| `feat/bootstrap-api`                | Project skeleton, EF Core, OpenAPI, health         |
+| `feat/products-chat-endpoints`      | Products CRUD, Chat (Gemini)                       |
+| `feat/auth`                         | JWT + cookies + Google OAuth + email verification  |

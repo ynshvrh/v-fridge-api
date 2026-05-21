@@ -1,0 +1,6 @@
+@VFridge.Api_HostAddress = http://localhost:5287
+
+GET {{VFridge.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
