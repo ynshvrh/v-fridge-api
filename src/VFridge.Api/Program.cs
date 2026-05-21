@@ -1,6 +1,15 @@
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
+using VFridge.Api.Endpoints;
+using VFridge.Api.Services;
+
+// The Drizzle-owned schema uses `timestamp without time zone`. Opt back into the legacy
+// Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 // Default config sources (appsettings, env-specific, user-secrets in Dev, env vars, cmd line)
@@ -13,7 +22,7 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.SectionName));
 builder.Services.Configure<FrontendOptions>(builder.Configuration.GetSection(FrontendOptions.SectionName));
-builder.Services.Configure<GeminiOptions>(builder.Configuration.GetSection(GeminiOptions.SectionName));
+builder.Services.Configure<OpenRouterOptions>(builder.Configuration.GetSection(OpenRouterOptions.SectionName));
 
 // Database
 var connectionString =
@@ -44,6 +53,43 @@ builder.Services.AddCors(options =>
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<VFridgeDbContext>("database");
 
+// Rate limiting: 5 requests / 60s per user (mirrors the Next.js implementation)
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (context, ct) =>
+    {
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsync(
+            "{\"role\":\"assistant\",\"content\":\"⚠️ Забагато запитів. Спробуйте через хвилину.\"}", ct);
+    };
+
+    options.AddPolicy("chat", httpContext =>
+    {
+        var key = httpContext.RequestServices.GetRequiredService<ICurrentUser>().UserId?.ToString()
+                  ?? httpContext.Connection.RemoteIpAddress?.ToString()
+                  ?? "anon";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            key,
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromSeconds(60),
+                SegmentsPerWindow = 6,
+                PermitLimit = 5,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+});
+
+// Current-user accessor + AI service
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
+builder.Services.AddHttpClient<IAiChatService, OpenRouterChatService>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
+
 // OpenAPI (.NET 10 built-in)
 builder.Services.AddOpenApi();
 
@@ -60,6 +106,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseCors(CorsPolicy);
+app.UseRateLimiter();
 
 // Routes
 app.MapGet("/", () => Results.Ok(new
@@ -72,6 +119,9 @@ app.MapGet("/", () => Results.Ok(new
     .WithTags("Meta");
 
 app.MapHealthChecks("/health");
+
+app.MapProductsEndpoints();
+app.MapChatEndpoints();
 
 app.Run();
 
