@@ -53,6 +53,8 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
     public FakeAiChatService Ai { get; } = new();
 
+    public FakeMealPlannerService Planner { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Tests run from the test bin/ — point the host at the API project source so
@@ -90,6 +92,9 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IAiChatService>();
             services.AddSingleton<IAiChatService>(Ai);
+
+            services.RemoveAll<IMealPlannerService>();
+            services.AddSingleton<IMealPlannerService>(Planner);
         });
 
         builder.UseEnvironment("Development");
