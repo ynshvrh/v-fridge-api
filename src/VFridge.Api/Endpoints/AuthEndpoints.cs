@@ -33,14 +33,22 @@ public static class AuthEndpoints
     {
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
-        var (ok, error, user) = await auth.SignUpAsync(req, ct);
-        return ok
-            ? Results.Created("/auth/me", new
+        var (ok, code, user) = await auth.SignUpAsync(req, ct);
+        if (ok)
+        {
+            return Results.Created("/auth/me", new
             {
                 user,
                 message = "Account created. Check your inbox — we sent a confirmation email."
-            })
-            : Results.BadRequest(new { error });
+            });
+        }
+
+        var error = code switch
+        {
+            AuthService.SignUpErrorEmailExists => "A user with this email already exists",
+            _ => "Sign-up failed"
+        };
+        return Results.BadRequest(new { code, error });
     }
 
     private static async Task<IResult> LoginAsync(LoginRequest req, AuthService auth, CancellationToken ct)
@@ -64,8 +72,15 @@ public static class AuthEndpoints
     {
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
-        var (ok, error, pair) = await auth.RefreshAsync(req.RefreshToken, ct);
-        return ok ? Results.Ok(pair) : Results.Json(new { error }, statusCode: StatusCodes.Status401Unauthorized);
+        var (ok, code, pair) = await auth.RefreshAsync(req.RefreshToken, ct);
+        if (ok) return Results.Ok(pair);
+
+        var error = code switch
+        {
+            AuthService.RefreshErrorInvalid => "Refresh token is invalid",
+            _ => "Refresh failed"
+        };
+        return Results.Json(new { code, error }, statusCode: StatusCodes.Status401Unauthorized);
     }
 
     private static async Task<IResult> LogoutAsync(LogoutRequest req, AuthService auth, CancellationToken ct)
@@ -96,10 +111,20 @@ public static class AuthEndpoints
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(req.Token))
-            return Results.BadRequest(new { error = "Token is required" });
+            return Results.BadRequest(new { code = "TOKEN_MISSING", error = "Token is required" });
 
-        var (ok, error, userId) = await auth.VerifyEmailAsync(req.Token, ct);
-        if (!ok || userId is null) return Results.BadRequest(new { error });
+        var (ok, code, userId) = await auth.VerifyEmailAsync(req.Token, ct);
+        if (!ok || userId is null)
+        {
+            var error = code switch
+            {
+                AuthService.VerifyErrorTokenNotFound => "Verification token not found",
+                AuthService.VerifyErrorTokenUsed => "Token has already been used",
+                AuthService.VerifyErrorTokenExpired => "Token has expired",
+                _ => "Verification failed"
+            };
+            return Results.BadRequest(new { code, error });
+        }
 
         var pair = await auth.IssueTokensForUserAsync(userId.Value, ct);
         return pair is null
@@ -134,11 +159,13 @@ public static class AuthEndpoints
         }
         catch (InvalidJwtException)
         {
-            return Results.Json(new { error = "Invalid Google token" }, statusCode: StatusCodes.Status401Unauthorized);
+            return Results.Json(
+                new { code = "GOOGLE_TOKEN_INVALID", error = "Invalid Google token" },
+                statusCode: StatusCodes.Status401Unauthorized);
         }
 
         if (string.IsNullOrWhiteSpace(payload.Email) || payload.EmailVerified != true)
-            return Results.BadRequest(new { error = "Google did not confirm the email" });
+            return Results.BadRequest(new { code = "GOOGLE_EMAIL_UNVERIFIED", error = "Google did not confirm the email" });
 
         var pair = await auth.SignInWithGoogleAsync(payload.Subject, payload.Email, payload.Name, ct);
         return Results.Ok(pair);

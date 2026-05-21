@@ -72,7 +72,7 @@ public static class ProductsEndpoints
         if (me.UserId is not int uid) return Results.Unauthorized();
 
         var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.OwnerId == uid, ct);
-        if (entity is null) return Results.NotFound(new { error = "Product not found" });
+        if (entity is null) return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
         if (req.Name is { } n)
         {
@@ -108,7 +108,7 @@ public static class ProductsEndpoints
             .ExecuteDeleteAsync(ct);
 
         return affected == 0
-            ? Results.NotFound(new { error = "Product not found" })
+            ? Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" })
             : Results.Ok(new { success = true });
     }
 
