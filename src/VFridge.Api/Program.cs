@@ -70,7 +70,7 @@ builder.Services.AddRateLimiter(options =>
     {
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsync(
-            "{\"role\":\"assistant\",\"content\":\"⚠️ Забагато запитів. Спробуйте через хвилину.\"}", ct);
+            "{\"code\":\"RATE_LIMITED\",\"role\":\"assistant\",\"content\":\"Too many requests. Try again in a minute.\"}", ct);
     };
 
     options.AddPolicy("chat", httpContext =>

@@ -23,7 +23,7 @@ public sealed class AuthService(
     {
         var emailNormalized = req.Email.Trim().ToLowerInvariant();
         var exists = await db.Users.AnyAsync(u => u.Email == emailNormalized, ct);
-        if (exists) return (false, "Користувач з таким email вже існує", null);
+        if (exists) return (false, "A user with this email already exists", null);
 
         var user = new User
         {
@@ -64,7 +64,7 @@ public sealed class AuthService(
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
         if (stored is null || !stored.IsActive)
-            return (false, "Refresh token недійсний", null);
+            return (false, "Refresh token is invalid", null);
 
         // Rotate: revoke the old token immediately, issue a fresh pair.
         stored.RevokedAt = DateTime.UtcNow;
@@ -89,9 +89,9 @@ public sealed class AuthService(
         var record = await db.EmailVerificationTokens
             .FirstOrDefaultAsync(t => t.TokenHash == hash, ct);
 
-        if (record is null) return (false, "Токен підтвердження не знайдено", null);
-        if (record.UsedAt is not null) return (false, "Токен вже використано", null);
-        if (record.ExpiresAt < DateTime.UtcNow) return (false, "Термін дії токена сплив", null);
+        if (record is null) return (false, "Verification token not found", null);
+        if (record.UsedAt is not null) return (false, "Token has already been used", null);
+        if (record.ExpiresAt < DateTime.UtcNow) return (false, "Token has expired", null);
 
         record.UsedAt = DateTime.UtcNow;
 
@@ -226,24 +226,24 @@ public sealed class AuthService(
 
         var html = $"""
             <div style="font-family: system-ui, sans-serif; max-width:480px; margin:auto;">
-              <h2 style="color:#8C5383;">Вітаємо у V-Fridge!</h2>
-              <p>Привіт, <strong>{user.Username}</strong>. Дякуємо за реєстрацію.</p>
-              <p>Підтвердьте, будь ласка, свою електронну адресу — клікніть на кнопку нижче:</p>
+              <h2 style="color:#8C5383;">Welcome to V-Fridge!</h2>
+              <p>Hi <strong>{user.Username}</strong>, thanks for signing up.</p>
+              <p>Please confirm your email address by clicking the button below:</p>
               <p>
                 <a href="{verifyUrl}"
                    style="display:inline-block;background:#8C5383;color:#fff;padding:12px 24px;
                           border-radius:12px;text-decoration:none;font-weight:600;">
-                  Підтвердити email
+                  Verify email
                 </a>
               </p>
-              <p style="color:#666;font-size:13px;">Якщо кнопка не працює — скопіюйте посилання:<br>{verifyUrl}</p>
-              <p style="color:#999;font-size:12px;">Посилання дійсне 24 години.</p>
+              <p style="color:#666;font-size:13px;">If the button does not work, copy and paste this link:<br>{verifyUrl}</p>
+              <p style="color:#999;font-size:12px;">This link is valid for 24 hours.</p>
             </div>
             """;
 
         try
         {
-            await email.SendAsync(user.Email, "V-Fridge — підтвердьте свою пошту", html, ct);
+            await email.SendAsync(user.Email, "V-Fridge — please confirm your email", html, ct);
         }
         catch (Exception ex)
         {

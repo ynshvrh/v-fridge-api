@@ -13,10 +13,10 @@ public sealed record ProductResponse(
     DateTime? CreatedAt);
 
 public sealed record CreateProductRequest(
-    [Required, MinLength(2, ErrorMessage = "Назва занадто коротка")]
+    [Required, MinLength(2, ErrorMessage = "Name is too short")]
     string Name,
     string? Description,
-    [Range(0.01, 1_000_000, ErrorMessage = "Кількість має бути більша за 0")]
+    [Range(0.01, 1_000_000, ErrorMessage = "Quantity must be greater than 0")]
     decimal Quantity,
     [Required] string Unit,
     DateOnly? ExpiryDate);

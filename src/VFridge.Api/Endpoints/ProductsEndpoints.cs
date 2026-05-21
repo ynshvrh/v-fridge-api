@@ -72,13 +72,13 @@ public static class ProductsEndpoints
         if (me.UserId is not int uid) return Results.Unauthorized();
 
         var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.OwnerId == uid, ct);
-        if (entity is null) return Results.NotFound(new { error = "Продукт не знайдено" });
+        if (entity is null) return Results.NotFound(new { error = "Product not found" });
 
         if (req.Name is { } n)
         {
             if (n.Trim().Length < 2) return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["name"] = ["Назва занадто коротка"]
+                ["name"] = ["Name is too short"]
             });
             entity.Name = n.Trim();
         }
@@ -87,7 +87,7 @@ public static class ProductsEndpoints
         {
             if (q <= 0) return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["quantity"] = ["Кількість має бути більша за 0"]
+                ["quantity"] = ["Quantity must be greater than 0"]
             });
             entity.Quantity = q;
         }
@@ -108,7 +108,7 @@ public static class ProductsEndpoints
             .ExecuteDeleteAsync(ct);
 
         return affected == 0
-            ? Results.NotFound(new { error = "Продукт не знайдено" })
+            ? Results.NotFound(new { error = "Product not found" })
             : Results.Ok(new { success = true });
     }
 
