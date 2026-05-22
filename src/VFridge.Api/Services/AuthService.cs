@@ -30,7 +30,7 @@ public sealed class AuthService(
         var user = new User
         {
             Email = emailNormalized,
-            Username = req.Username.Trim(),
+            Username = DefaultUsername(req.Username, emailNormalized),
             Password = hasher.Hash(req.Password)
         };
         db.Users.Add(user);
@@ -41,6 +41,15 @@ public sealed class AuthService(
         var summary = new UserSummary(user.Id, user.Username, user.Email, EmailVerified: false);
         await SendVerificationEmailAsync(user, ct);
         return (true, null, summary);
+    }
+
+    /// <summary>Trims the supplied username, falls back to the local part of the email when empty.</summary>
+    private static string DefaultUsername(string? raw, string email)
+    {
+        var trimmed = raw?.Trim();
+        if (!string.IsNullOrEmpty(trimmed)) return trimmed.Length > 50 ? trimmed[..50] : trimmed;
+        var local = email.Split('@', 2)[0];
+        return local.Length > 50 ? local[..50] : local;
     }
 
     private async Task EnsurePersonalFridgeAsync(User user, CancellationToken ct)
@@ -180,7 +189,7 @@ public sealed class AuthService(
                    ?? new User
                    {
                        Email = emailNormalized,
-                       Username = string.IsNullOrWhiteSpace(name) ? emailNormalized.Split('@')[0] : name,
+                       Username = DefaultUsername(name, emailNormalized),
                        // Random placeholder hash; password-less Google users won't ever pass Verify.
                        Password = hasher.Hash(Guid.NewGuid().ToString("N"))
                    };

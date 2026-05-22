@@ -89,8 +89,7 @@ public partial class VFridgeDbContext : DbContext
             entity.ToTable("users");
 
             entity.HasIndex(e => e.Email, "users_email_key").IsUnique();
-
-            entity.HasIndex(e => e.Username, "users_username_key").IsUnique();
+            // Username is a non-unique display name. See Migrations/006_username_display_name.sql.
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt)
