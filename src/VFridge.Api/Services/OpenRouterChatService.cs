@@ -51,7 +51,7 @@ public sealed class OpenRouterChatService(
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_opts.BaseUrl.TrimEnd('/')}/chat/completions")
         {
-            Content = JsonContent.Create(new ChatCompletionRequest(_opts.Model, messages))
+            Content = JsonContent.Create(new ChatCompletionRequest(_opts.Model, messages, _opts.MaxTokens))
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opts.ApiKey);
         if (!string.IsNullOrWhiteSpace(_opts.Referer)) request.Headers.TryAddWithoutValidation("HTTP-Referer", _opts.Referer);
@@ -75,7 +75,8 @@ public sealed class OpenRouterChatService(
 
     private sealed record ChatCompletionRequest(
         [property: JsonPropertyName("model")] string Model,
-        [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages);
+        [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
+        [property: JsonPropertyName("max_tokens")] int MaxTokens);
 
     private sealed class ChatCompletionResponse
     {
