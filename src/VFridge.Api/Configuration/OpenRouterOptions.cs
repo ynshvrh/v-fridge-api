@@ -8,6 +8,14 @@ public sealed class OpenRouterOptions
     public string ApiKey { get; set; } = "";
     public string Model { get; set; } = "google/gemini-2.5-flash";
 
+    /// <summary>
+    /// Cap on tokens OpenRouter is allowed to generate per call. OpenRouter reserves
+    /// credits up-front against the requested ceiling, so leaving it open at the model
+    /// max (e.g. 16k) makes low-balance accounts fail with HTTP 402 even on tiny
+    /// responses. 2048 comfortably fits a meal plan or chat reply.
+    /// </summary>
+    public int MaxTokens { get; set; } = 2048;
+
     /// <summary>Optional HTTP-Referer header value — OpenRouter uses it for app attribution.</summary>
     public string? Referer { get; set; } = "https://v-fridge.app";
 

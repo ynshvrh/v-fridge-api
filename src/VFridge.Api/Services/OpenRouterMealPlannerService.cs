@@ -50,7 +50,8 @@ public sealed class OpenRouterMealPlannerService(
         var body = new ChatCompletionRequest(
             _opts.Model,
             messages,
-            new ResponseFormat("json_object"));
+            new ResponseFormat("json_object"),
+            _opts.MaxTokens);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_opts.BaseUrl.TrimEnd('/')}/chat/completions")
         {
@@ -121,7 +122,8 @@ public sealed class OpenRouterMealPlannerService(
     private sealed record ChatCompletionRequest(
         [property: JsonPropertyName("model")] string Model,
         [property: JsonPropertyName("messages")] IReadOnlyList<ChatMessage> Messages,
-        [property: JsonPropertyName("response_format")] ResponseFormat ResponseFormat);
+        [property: JsonPropertyName("response_format")] ResponseFormat ResponseFormat,
+        [property: JsonPropertyName("max_tokens")] int MaxTokens);
 
     private sealed class ChatCompletionResponse
     {
