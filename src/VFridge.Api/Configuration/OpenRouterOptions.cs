@@ -6,7 +6,7 @@ public sealed class OpenRouterOptions
 
     public string BaseUrl { get; set; } = "https://openrouter.ai/api/v1";
     public string ApiKey { get; set; } = "";
-    public string Model { get; set; } = "openai/gpt-4o-mini";
+    public string Model { get; set; } = "google/gemini-2.5-flash";
 
     /// <summary>Optional HTTP-Referer header value — OpenRouter uses it for app attribution.</summary>
     public string? Referer { get; set; } = "https://v-fridge.app";
