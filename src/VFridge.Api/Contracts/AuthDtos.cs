@@ -4,7 +4,9 @@ namespace VFridge.Api.Contracts;
 
 public sealed record SignUpRequest(
     [property: Required, EmailAddress] string Email,
-    [property: Required, MinLength(3), MaxLength(50)] string Username,
+    // Username is an optional display name. If empty / whitespace, the server falls back to the
+    // local part of the email. MaxLength stays so storage size is bounded.
+    [property: MaxLength(50)] string? Username,
     [property: Required, MinLength(6)] string Password);
 
 public sealed record LoginRequest(
