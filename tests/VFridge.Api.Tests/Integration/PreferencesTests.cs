@@ -92,6 +92,61 @@ public class PreferencesTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Signup_DefaultsCuisinePreference_To_Any()
+    {
+        var token = await BootstrapVerifiedUserAsync("c1@example.com", "secret123", preferredLanguage: null);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var me = await _client.GetFromJsonAsync<JsonElement>("/auth/me");
+        me.GetProperty("cuisinePreference").GetString().Should().Be("any");
+    }
+
+    [Fact]
+    public async Task Patch_UpdatesCuisinePreference_AndReflectsInMe()
+    {
+        var token = await BootstrapVerifiedUserAsync("c2@example.com", "secret123", preferredLanguage: null);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { cuisinePreference = "georgian" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        patched.GetProperty("cuisinePreference").GetString().Should().Be("georgian");
+        // The language field should remain untouched by a cuisine-only PATCH.
+        patched.GetProperty("preferredLanguage").GetString().Should().Be("en");
+
+        var me = await _client.GetFromJsonAsync<JsonElement>("/auth/me");
+        me.GetProperty("cuisinePreference").GetString().Should().Be("georgian");
+    }
+
+    [Fact]
+    public async Task Patch_AcceptsBothFields_Simultaneously()
+    {
+        var token = await BootstrapVerifiedUserAsync("c3@example.com", "secret123", preferredLanguage: null);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { preferredLanguage = "uk", cuisinePreference = "japanese" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        patched.GetProperty("preferredLanguage").GetString().Should().Be("uk");
+        patched.GetProperty("cuisinePreference").GetString().Should().Be("japanese");
+    }
+
+    [Fact]
+    public async Task Patch_RejectsUnsupportedCuisine_With_400()
+    {
+        var token = await BootstrapVerifiedUserAsync("c4@example.com", "secret123", preferredLanguage: null);
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { cuisinePreference = "venusian" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("UNSUPPORTED_CUISINE");
+    }
+
+    [Fact]
     public async Task Patch_Unauthorized_Without_Token()
     {
         var patch = await _client.PatchAsync("/auth/me/preferences",

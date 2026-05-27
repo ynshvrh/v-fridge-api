@@ -32,14 +32,21 @@ public sealed class AuthService(
             Email = emailNormalized,
             Username = DefaultUsername(req.Username, emailNormalized),
             Password = hasher.Hash(req.Password),
-            PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage)
+            PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage),
+            CuisinePreference = SupportedCuisines.Normalize(req.CuisinePreference)
         };
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
 
         await EnsurePersonalFridgeAsync(user, ct);
 
-        var summary = new UserSummary(user.Id, user.Username, user.Email, EmailVerified: false, user.PreferredLanguage);
+        var summary = new UserSummary(
+            user.Id,
+            user.Username,
+            user.Email,
+            EmailVerified: false,
+            user.PreferredLanguage,
+            user.CuisinePreference);
         await SendVerificationEmailAsync(user, ct);
         return (true, null, summary);
     }
@@ -225,27 +232,47 @@ public sealed class AuthService(
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return null;
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
-        return new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage);
+        return new UserSummary(
+            user.Id,
+            user.Username,
+            user.Email,
+            verified,
+            user.PreferredLanguage,
+            user.CuisinePreference);
     }
 
     public const string PreferencesErrorUnsupportedLanguage = "UNSUPPORTED_LANGUAGE";
+    public const string PreferencesErrorUnsupportedCuisine = "UNSUPPORTED_CUISINE";
 
     public async Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdatePreferencesAsync(
         int userId,
         UpdatePreferencesRequest req,
         CancellationToken ct)
     {
-        if (!SupportedLanguages.IsSupported(req.PreferredLanguage))
+        // Partial update: validate only the fields the client actually sent. Sending neither
+        // returns the current user unchanged so the endpoint stays idempotent.
+        if (req.PreferredLanguage is not null && !SupportedLanguages.IsSupported(req.PreferredLanguage))
             return (false, PreferencesErrorUnsupportedLanguage, null);
+        if (req.CuisinePreference is not null && !SupportedCuisines.IsSupported(req.CuisinePreference))
+            return (false, PreferencesErrorUnsupportedCuisine, null);
 
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return (false, null, null);
 
-        user.PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage);
+        if (req.PreferredLanguage is not null)
+            user.PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage);
+        if (req.CuisinePreference is not null)
+            user.CuisinePreference = SupportedCuisines.Normalize(req.CuisinePreference);
         await db.SaveChangesAsync(ct);
 
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
-        return (true, null, new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage));
+        return (true, null, new UserSummary(
+            user.Id,
+            user.Username,
+            user.Email,
+            verified,
+            user.PreferredLanguage,
+            user.CuisinePreference));
     }
 
     private async Task<TokenPair> IssueTokenPairAsync(User user, CancellationToken ct)
@@ -270,7 +297,13 @@ public sealed class AuthService(
             accessExpires,
             raw,
             refreshExpires,
-            new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage));
+            new UserSummary(
+                user.Id,
+                user.Username,
+                user.Email,
+                verified,
+                user.PreferredLanguage,
+                user.CuisinePreference));
     }
 
     private async Task SendVerificationEmailAsync(User user, CancellationToken ct)
