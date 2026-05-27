@@ -85,6 +85,7 @@ public partial class VFridgeDbContext
 
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
             entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(255);
             entity.Property(e => e.Quantity).HasColumnName("quantity").HasPrecision(10, 2);
             entity.Property(e => e.Unit).HasColumnName("unit").HasMaxLength(20);
@@ -100,6 +101,7 @@ public partial class VFridgeDbContext
 
             entity.HasIndex(e => e.UserId).HasDatabaseName("ix_shopping_items_user");
             entity.HasIndex(e => new { e.UserId, e.Checked }).HasDatabaseName("ix_shopping_items_user_checked");
+            entity.HasIndex(e => e.FridgeId).HasDatabaseName("ix_shopping_items_fridge");
 
             entity.HasOne(e => e.User).WithMany()
                 .HasForeignKey(e => e.UserId)

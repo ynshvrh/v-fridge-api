@@ -129,6 +129,45 @@ public class ShoppingTests : IAsyncLifetime
         body.GetProperty("code").GetString().Should().Be("SHOPPING_ITEM_NOT_FOUND");
     }
 
+    [Fact]
+    public async Task ShoppingList_IsScoped_PerFridge()
+    {
+        // Caller already has a personal fridge from signup; create a second one explicitly.
+        var second = await _client.PostAsJsonAsync("/fridges", new { name = "Cottage" });
+        second.StatusCode.Should().Be(HttpStatusCode.Created);
+        var secondId = (await second.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        // Item without X-Fridge-Id → lands in the personal fridge.
+        await _client.PostAsJsonAsync("/shopping", new { name = "Bread" });
+
+        // Item with explicit X-Fridge-Id → lands in the second fridge.
+        var withHeader = new HttpRequestMessage(HttpMethod.Post, "/shopping")
+        {
+            Content = JsonContent.Create(new { name = "Tea" }),
+            Headers = { { "X-Fridge-Id", secondId.ToString() } }
+        };
+        withHeader.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
+        var added = await _client.SendAsync(withHeader);
+        added.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // Personal fridge sees only Bread.
+        var personal = await _client.GetFromJsonAsync<JsonElement>("/shopping");
+        personal.GetArrayLength().Should().Be(1);
+        personal[0].GetProperty("name").GetString().Should().Be("Bread");
+
+        // Second fridge sees only Tea.
+        var cottageReq = new HttpRequestMessage(HttpMethod.Get, "/shopping")
+        {
+            Headers = { { "X-Fridge-Id", secondId.ToString() } }
+        };
+        cottageReq.Headers.Authorization = _client.DefaultRequestHeaders.Authorization;
+        var cottageResp = await _client.SendAsync(cottageReq);
+        cottageResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cottage = await cottageResp.Content.ReadFromJsonAsync<JsonElement>();
+        cottage.GetArrayLength().Should().Be(1);
+        cottage[0].GetProperty("name").GetString().Should().Be("Tea");
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });
