@@ -8,13 +8,17 @@ public sealed class FakeAiChatService : IAiChatService
 
     public int CallCount { get; private set; }
 
+    public string? LastPreferredLanguage { get; private set; }
+
     public Task<string?> GenerateReplyAsync(
         IReadOnlyList<(string Role, string Content)> history,
         string fridgeInventory,
         string userPrompt,
+        string preferredLanguage,
         CancellationToken ct)
     {
         CallCount++;
+        LastPreferredLanguage = preferredLanguage;
         return Task.FromResult<string?>(Reply);
     }
 }

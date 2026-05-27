@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Options;
 using VFridge.Api.Configuration;
+using VFridge.Api.Contracts;
 
 namespace VFridge.Api.Services;
 
@@ -19,10 +20,27 @@ public sealed class OpenRouterChatService(
 
     private readonly OpenRouterOptions _opts = options.Value;
 
+    /// <summary>
+    /// Cultural / regional steering for the chef. Output text stays English regardless — only
+    /// the choice of dishes and ingredients shifts so a Ukrainian user does not get taco-style
+    /// suggestions out of the blue. Keep entries short; the model is sensitive to long prompts.
+    /// </summary>
+    public static string? CultureContextFor(string preferredLanguage) => preferredLanguage switch
+    {
+        "uk" =>
+            "The user is based in Ukraine. Prefer dishes from Ukrainian and Eastern European cuisine " +
+            "when the inventory allows it (borscht, varenyky, deruny, holubtsi, syrniki, kotleta po-kyivsky, " +
+            "salat olivier, etc.) and assume locally available ingredients. Avoid suggesting unfamiliar " +
+            "regional dishes (tacos, sushi, pho, jambalaya, etc.) unless the user explicitly asks for them. " +
+            "Always respond in English.",
+        _ => null
+    };
+
     public async Task<string?> GenerateReplyAsync(
         IReadOnlyList<(string Role, string Content)> history,
         string fridgeInventory,
         string userPrompt,
+        string preferredLanguage,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -36,6 +54,9 @@ public sealed class OpenRouterChatService(
             new("system", SystemPrompt),
             new("system", $"Current inventory: {fridgeInventory}")
         };
+
+        var culture = CultureContextFor(SupportedLanguages.Normalize(preferredLanguage));
+        if (culture is not null) messages.Add(new ChatMessage("system", culture));
 
         foreach (var (role, content) in history)
         {

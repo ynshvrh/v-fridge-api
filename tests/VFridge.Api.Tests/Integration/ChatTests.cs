@@ -28,6 +28,31 @@ public class ChatTests : IAsyncLifetime
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }
 
+    [Fact]
+    public async Task PostMessage_PassesUserPreferredLanguage_To_Ai()
+    {
+        // The bootstrapped user has no preferredLanguage set in signup, so the column default ("en")
+        // kicks in. Switch it via the public PATCH endpoint so we exercise the whole chain.
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { preferredLanguage = "uk" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Ai.Reply = "borscht please";
+        var resp = await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Ai.LastPreferredLanguage.Should().Be("uk");
+    }
+
+    [Fact]
+    public async Task PostMessage_DefaultsTo_En_WhenNoPreferenceSet()
+    {
+        _factory.Ai.Reply = "omelette";
+        await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
+
+        _factory.Ai.LastPreferredLanguage.Should().Be("en");
+    }
+
     public Task DisposeAsync()
     {
         _client.Dispose();
