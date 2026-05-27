@@ -82,6 +82,15 @@ public static class AuthEndpoints
             .Produces<UserSummary>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
 
+        group.MapPatch("/me/preferences", UpdatePreferencesAsync)
+            .RequireAuthorization()
+            .WithName("UpdatePreferences")
+            .WithSummary("Update the caller's preferences")
+            .WithDescription("Currently supports preferredLanguage (\"en\" or \"uk\"). Returns the updated user summary. 400 UNSUPPORTED_LANGUAGE if the code is not in the allow list.")
+            .Produces<UserSummary>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized);
+
         return app;
     }
 
@@ -232,6 +241,29 @@ public static class AuthEndpoints
         if (me.UserId is not int uid) return Results.Unauthorized();
         var user = await auth.GetCurrentUserAsync(uid, ct);
         return user is null ? Results.NotFound() : Results.Ok(user);
+    }
+
+    private static async Task<IResult> UpdatePreferencesAsync(
+        UpdatePreferencesRequest req,
+        AuthService auth,
+        ICurrentUser me,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
+
+        var (ok, code, user) = await auth.UpdatePreferencesAsync(uid, req, ct);
+        if (ok && user is not null) return Results.Ok(user);
+
+        return code switch
+        {
+            AuthService.PreferencesErrorUnsupportedLanguage => Results.BadRequest(new
+            {
+                code,
+                error = "preferredLanguage must be one of: en, uk"
+            }),
+            _ => Results.NotFound()
+        };
     }
 
     private static bool TryValidate<T>(T instance, out Dictionary<string, string[]> errors) where T : class

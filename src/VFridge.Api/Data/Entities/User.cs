@@ -15,6 +15,8 @@ public partial class User
 
     public DateTime? CreatedAt { get; set; }
 
+    public string PreferredLanguage { get; set; } = "en";
+
     public virtual ICollection<Chat> Chats { get; set; } = new List<Chat>();
 
     public virtual ICollection<Product> Products { get; set; } = new List<Product>();
