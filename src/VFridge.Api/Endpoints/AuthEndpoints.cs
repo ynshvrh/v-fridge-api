@@ -86,7 +86,7 @@ public static class AuthEndpoints
             .RequireAuthorization()
             .WithName("UpdatePreferences")
             .WithSummary("Update the caller's preferences")
-            .WithDescription("Currently supports preferredLanguage (\"en\" or \"uk\"). Returns the updated user summary. 400 UNSUPPORTED_LANGUAGE if the code is not in the allow list.")
+            .WithDescription("Partial update for preferredLanguage and/or cuisinePreference. Both are optional; sending neither is a no-op. preferredLanguage controls UI language (en/uk); cuisinePreference steers the chef. Error codes: UNSUPPORTED_LANGUAGE, UNSUPPORTED_CUISINE.")
             .Produces<UserSummary>(StatusCodes.Status200OK)
             .Produces<ApiError>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized);
@@ -261,6 +261,11 @@ public static class AuthEndpoints
             {
                 code,
                 error = "preferredLanguage must be one of: en, uk"
+            }),
+            AuthService.PreferencesErrorUnsupportedCuisine => Results.BadRequest(new
+            {
+                code,
+                error = "cuisinePreference must be one of: ukrainian, georgian, italian, french, mexican, middle-eastern, indian, chinese, japanese, thai, american, any"
             }),
             _ => Results.NotFound()
         };

@@ -41,7 +41,7 @@ public class OpenRouterMaxTokensTests
             Array.Empty<(string Role, string Content)>(),
             "empty fridge",
             "what's for dinner?",
-            "en",
+            "any",
             CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;

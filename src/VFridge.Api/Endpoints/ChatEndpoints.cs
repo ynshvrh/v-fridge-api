@@ -66,7 +66,6 @@ public static class ChatEndpoints
         VFridge.Api.Services.FridgeContext fridgeContext,
         IAiChatService ai,
         ILogger<Program> logger,
-        HttpContext http,
         CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
@@ -100,17 +99,14 @@ public static class ChatEndpoints
             .Select(c => new { c.Role, c.Content })
             .ToListAsync(ct);
 
-        // Preferred language priority: stored user preference first, Accept-Language as a fallback
-        // for clients that have not synced (or have not yet logged in long enough for /auth/me to
-        // hydrate). Final fallback to the default.
-        var storedLang = await db.Users
+        // Cuisine preference steers the chef. We read it from the user record (not
+        // Accept-Language) so the choice is portable across devices and not tied to the
+        // user's UI language. Falls back to "any" for accounts that have never set it.
+        var storedCuisine = await db.Users
             .Where(u => u.Id == uid)
-            .Select(u => u.PreferredLanguage)
+            .Select(u => u.CuisinePreference)
             .FirstOrDefaultAsync(ct);
-        var preferredLanguage = Contracts.SupportedLanguages.IsSupported(storedLang)
-            ? storedLang!
-            : Contracts.SupportedLanguages.MatchAcceptLanguage(http.Request.Headers.AcceptLanguage.ToString())
-              ?? Contracts.SupportedLanguages.Default;
+        var cuisinePreference = Contracts.SupportedCuisines.Normalize(storedCuisine);
 
         string? aiText;
         try
@@ -119,7 +115,7 @@ public static class ChatEndpoints
                 history.Select(h => (h.Role, h.Content)).ToList(),
                 inventoryStr,
                 req.Content,
-                preferredLanguage,
+                cuisinePreference,
                 ct);
         }
         catch (Exception ex)

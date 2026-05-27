@@ -39,11 +39,19 @@ public class SupportedLanguagesTests
     }
 
     [Fact]
-    public void CultureContext_Is_Empty_For_English_And_Populated_For_Ukrainian()
+    public void CultureContext_Is_Empty_For_Any_And_Populated_For_Concrete_Cuisines()
     {
-        OpenRouterChatService.CultureContextFor("en").Should().BeNull();
-        OpenRouterChatService.CultureContextFor("uk")
+        OpenRouterChatService.CultureContextFor("any").Should().BeNull();
+        OpenRouterChatService.CultureContextFor("unknown").Should().BeNull();
+
+        OpenRouterChatService.CultureContextFor("ukrainian")
             .Should().NotBeNullOrWhiteSpace()
-            .And.Subject.ToString().Should().Contain("Ukraine");
+            .And.Subject.ToString().Should().Contain("Ukrainian").And.Contain("borscht");
+        OpenRouterChatService.CultureContextFor("georgian")
+            .Should().NotBeNullOrWhiteSpace()
+            .And.Subject.ToString().Should().Contain("Georgian").And.Contain("khachapuri");
+        OpenRouterChatService.CultureContextFor("japanese")
+            .Should().NotBeNullOrWhiteSpace()
+            .And.Subject.ToString().Should().Contain("Japanese").And.Contain("ramen");
     }
 }

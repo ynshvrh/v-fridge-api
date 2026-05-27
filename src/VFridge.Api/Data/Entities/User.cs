@@ -17,6 +17,8 @@ public partial class User
 
     public string PreferredLanguage { get; set; } = "en";
 
+    public string CuisinePreference { get; set; } = "any";
+
     public virtual ICollection<Chat> Chats { get; set; } = new List<Chat>();
 
     public virtual ICollection<Product> Products { get; set; } = new List<Product>();

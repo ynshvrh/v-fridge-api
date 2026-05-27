@@ -29,28 +29,27 @@ public class ChatTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task PostMessage_PassesUserPreferredLanguage_To_Ai()
+    public async Task PostMessage_PassesUserCuisinePreference_To_Ai()
     {
-        // The bootstrapped user has no preferredLanguage set in signup, so the column default ("en")
-        // kicks in. Switch it via the public PATCH endpoint so we exercise the whole chain.
+        // Switch the cuisine via the public PATCH endpoint so we exercise the whole chain.
         var patch = await _client.PatchAsync("/auth/me/preferences",
-            JsonContent.Create(new { preferredLanguage = "uk" }));
+            JsonContent.Create(new { cuisinePreference = "ukrainian" }));
         patch.StatusCode.Should().Be(HttpStatusCode.OK);
 
         _factory.Ai.Reply = "borscht please";
         var resp = await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        _factory.Ai.LastPreferredLanguage.Should().Be("uk");
+        _factory.Ai.LastCuisinePreference.Should().Be("ukrainian");
     }
 
     [Fact]
-    public async Task PostMessage_DefaultsTo_En_WhenNoPreferenceSet()
+    public async Task PostMessage_DefaultsTo_Any_WhenNoPreferenceSet()
     {
         _factory.Ai.Reply = "omelette";
         await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
 
-        _factory.Ai.LastPreferredLanguage.Should().Be("en");
+        _factory.Ai.LastCuisinePreference.Should().Be("any");
     }
 
     public Task DisposeAsync()

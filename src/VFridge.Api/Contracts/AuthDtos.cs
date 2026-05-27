@@ -10,7 +10,10 @@ public sealed record SignUpRequest(
     [property: Required, MinLength(6)] string Password,
     // Optional preferred UI language captured at signup so clients don't have to PATCH right
     // after. Falls back to "en" when missing or unsupported. Validated against SupportedLanguages.
-    string? PreferredLanguage = null);
+    string? PreferredLanguage = null,
+    // Optional cuisine preference (used by the chef to steer recipe suggestions). Falls back to
+    // "any" when missing or unsupported. Validated against SupportedCuisines.
+    string? CuisinePreference = null);
 
 public sealed record LoginRequest(
     [property: Required, EmailAddress] string Email,
@@ -27,10 +30,16 @@ public sealed record UserSummary(
     string Username,
     string Email,
     bool EmailVerified,
-    string PreferredLanguage);
+    string PreferredLanguage,
+    string CuisinePreference);
 
+/// <summary>
+/// Partial-update DTO for /auth/me/preferences. Both fields are optional; only the ones
+/// the client sends are applied. Sending neither is a no-op.
+/// </summary>
 public sealed record UpdatePreferencesRequest(
-    [property: Required] string PreferredLanguage);
+    string? PreferredLanguage = null,
+    string? CuisinePreference = null);
 
 public sealed record TokenPair(
     string AccessToken,

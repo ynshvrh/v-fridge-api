@@ -107,6 +107,10 @@ public partial class VFridgeDbContext : DbContext
                 .HasMaxLength(8)
                 .HasDefaultValue("en")
                 .HasColumnName("preferred_language");
+            entity.Property(e => e.CuisinePreference)
+                .HasMaxLength(32)
+                .HasDefaultValue("any")
+                .HasColumnName("cuisine_preference");
         });
 
         OnModelCreatingPartial(modelBuilder);

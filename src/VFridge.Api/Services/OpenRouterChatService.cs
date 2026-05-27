@@ -21,26 +21,37 @@ public sealed class OpenRouterChatService(
     private readonly OpenRouterOptions _opts = options.Value;
 
     /// <summary>
-    /// Cultural / regional steering for the chef. Output text stays English regardless — only
-    /// the choice of dishes and ingredients shifts so a Ukrainian user does not get taco-style
-    /// suggestions out of the blue. Keep entries short; the model is sensitive to long prompts.
+    /// Culinary steering for the chef based on the user's cuisine preference. Output text
+    /// stays English regardless — only the choice of dishes and ingredients shifts. Keep
+    /// entries short; the model is sensitive to long prompts.
     /// </summary>
-    public static string? CultureContextFor(string preferredLanguage) => preferredLanguage switch
+    public static string? CultureContextFor(string cuisine) => cuisine switch
     {
-        "uk" =>
-            "The user is based in Ukraine. Prefer dishes from Ukrainian and Eastern European cuisine " +
-            "when the inventory allows it (borscht, varenyky, deruny, holubtsi, syrniki, kotleta po-kyivsky, " +
-            "salat olivier, etc.) and assume locally available ingredients. Avoid suggesting unfamiliar " +
-            "regional dishes (tacos, sushi, pho, jambalaya, etc.) unless the user explicitly asks for them. " +
-            "Always respond in English.",
-        _ => null
+        "ukrainian" => Bias("Ukrainian", "borscht, varenyky, deruny, holubtsi, syrniki, kotleta po-kyivsky, salat olivier"),
+        "georgian"  => Bias("Georgian", "khachapuri, khinkali, lobio, mtsvadi, ajapsandali, badrijani"),
+        "italian"   => Bias("Italian", "pasta, risotto, polenta, frittata, minestrone, panzanella"),
+        "french"    => Bias("French", "omelette, ratatouille, soupe à l'oignon, quiche, blanquette"),
+        "mexican"   => Bias("Mexican", "tacos, quesadillas, fajitas, chilaquiles, sopes, tinga"),
+        "middle-eastern" => Bias("Middle Eastern", "hummus, shakshuka, tabbouleh, kebabs, falafel, fattoush"),
+        "indian"    => Bias("Indian", "curries, dal, biryani, chana masala, samosas, paratha"),
+        "chinese"   => Bias("Chinese", "stir-fries, fried rice, mapo tofu, dumplings, noodle soups"),
+        "japanese"  => Bias("Japanese", "donburi, ramen, miso soup, onigiri, teriyaki, yakisoba"),
+        "thai"      => Bias("Thai", "pad thai, green curry, tom yum, larb, basil chicken"),
+        "american"  => Bias("American", "grilled meats, BBQ, burgers, casseroles, mac and cheese"),
+        _ => null // "any" or unknown — chef stays neutral
     };
+
+    private static string Bias(string cuisineLabel, string examples) =>
+        $"The user prefers {cuisineLabel} cuisine — typically {examples}. " +
+        "Bias your recipe suggestions toward dishes from that culinary tradition when the " +
+        "inventory allows it. If the inventory does not cover it, adapt or suggest the " +
+        "closest substitute rather than switching cuisines. Always respond in English.";
 
     public async Task<string?> GenerateReplyAsync(
         IReadOnlyList<(string Role, string Content)> history,
         string fridgeInventory,
         string userPrompt,
-        string preferredLanguage,
+        string cuisinePreference,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -55,7 +66,7 @@ public sealed class OpenRouterChatService(
             new("system", $"Current inventory: {fridgeInventory}")
         };
 
-        var culture = CultureContextFor(SupportedLanguages.Normalize(preferredLanguage));
+        var culture = CultureContextFor(SupportedCuisines.Normalize(cuisinePreference));
         if (culture is not null) messages.Add(new ChatMessage("system", culture));
 
         foreach (var (role, content) in history)
