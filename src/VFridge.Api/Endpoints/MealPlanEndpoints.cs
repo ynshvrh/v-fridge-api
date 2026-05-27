@@ -64,13 +64,17 @@ public static class MealPlanEndpoints
         ImportGapsRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
         if (req.Items.Count == 0) return Results.Ok(new ImportGapsResponse(0, 0));
 
+        var fridgeId = resolved.Value.FridgeId;
         var existing = await db.ShoppingItems
-            .Where(i => i.UserId == uid && !i.Checked)
+            .Where(i => i.FridgeId == fridgeId && !i.Checked)
             .Select(i => i.Name.ToLower())
             .ToListAsync(ct);
         var existingSet = existing.ToHashSet();
@@ -94,6 +98,7 @@ public static class MealPlanEndpoints
             db.ShoppingItems.Add(new ShoppingItem
             {
                 UserId = uid,
+                FridgeId = fridgeId,
                 Name = trimmed,
                 Quantity = qty,
                 Unit = item.Unit,

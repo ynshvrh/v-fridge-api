@@ -54,12 +54,18 @@ public static class ShoppingEndpoints
         return app;
     }
 
-    private static async Task<IResult> ListAsync(VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> ListAsync(
+        VFridgeDbContext db,
+        ICurrentUser me,
+        FridgeContext fridgeContext,
+        CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (me.UserId is not int _) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         var items = await db.ShoppingItems
-            .Where(i => i.UserId == uid)
+            .Where(i => i.FridgeId == resolved.Value.FridgeId)
             .OrderBy(i => i.Checked)
             .ThenBy(i => i.CreatedAt)
             .Select(i => new ShoppingItemResponse(i.Id, i.Name, i.Quantity, i.Unit, i.Category, i.Checked, i.CreatedAt))
@@ -72,9 +78,12 @@ public static class ShoppingEndpoints
         CreateShoppingItemRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
@@ -83,6 +92,7 @@ public static class ShoppingEndpoints
         var entity = new ShoppingItem
         {
             UserId = uid,
+            FridgeId = resolved.Value.FridgeId,
             Name = req.Name.Trim(),
             Quantity = req.Quantity,
             Unit = req.Unit,
@@ -101,11 +111,17 @@ public static class ShoppingEndpoints
         UpdateShoppingItemRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (me.UserId is not int _) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
-        var entity = await db.ShoppingItems.FirstOrDefaultAsync(i => i.Id == id && i.UserId == uid, ct);
+        // Match by id + fridge (not by user) so members of a shared fridge can edit each
+        // other's items. Cross-fridge access is blocked by the fridge filter.
+        var entity = await db.ShoppingItems
+            .FirstOrDefaultAsync(i => i.Id == id && i.FridgeId == resolved.Value.FridgeId, ct);
         if (entity is null) return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
 
         if (req.Name is { } n)
@@ -133,12 +149,19 @@ public static class ShoppingEndpoints
         return Results.Ok(resp);
     }
 
-    private static async Task<IResult> DeleteAsync(int id, VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> DeleteAsync(
+        int id,
+        VFridgeDbContext db,
+        ICurrentUser me,
+        FridgeContext fridgeContext,
+        CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (me.UserId is not int _) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
         var affected = await db.ShoppingItems
-            .Where(i => i.Id == id && i.UserId == uid)
+            .Where(i => i.Id == id && i.FridgeId == resolved.Value.FridgeId)
             .ExecuteDeleteAsync(ct);
 
         return affected == 0
@@ -158,7 +181,8 @@ public static class ShoppingEndpoints
         var resolved = await fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
-        var item = await db.ShoppingItems.FirstOrDefaultAsync(i => i.Id == id && i.UserId == uid, ct);
+        var item = await db.ShoppingItems
+            .FirstOrDefaultAsync(i => i.Id == id && i.FridgeId == resolved.Value.FridgeId, ct);
         if (item is null) return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
 
         var product = new Product
