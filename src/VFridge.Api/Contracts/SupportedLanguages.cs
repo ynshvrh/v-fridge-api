@@ -21,4 +21,24 @@ public static class SupportedLanguages
     /// <summary>Normalises any input to a supported language code, falling back to <see cref="Default"/>.</summary>
     public static string Normalize(string? code) =>
         IsSupported(code) ? code!.ToLowerInvariant() : Default;
+
+    /// <summary>
+    /// Parses an Accept-Language header (e.g. "uk-UA,uk;q=0.9,en;q=0.8") and returns the first
+    /// supported base language code, or null when none match. Regional tags ("uk-UA") collapse
+    /// to their base ("uk"). q-values are ignored — header order is treated as priority order
+    /// since browsers already sort by it.
+    /// </summary>
+    public static string? MatchAcceptLanguage(string? acceptLanguage)
+    {
+        if (string.IsNullOrWhiteSpace(acceptLanguage)) return null;
+
+        foreach (var raw in acceptLanguage.Split(',', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var entry = raw.Split(';', 2)[0].Trim();
+            if (entry.Length == 0) continue;
+            var baseCode = entry.Split('-', 2)[0].ToLowerInvariant();
+            if (All.Contains(baseCode)) return baseCode;
+        }
+        return null;
+    }
 }
