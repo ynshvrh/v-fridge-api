@@ -31,14 +31,15 @@ public sealed class AuthService(
         {
             Email = emailNormalized,
             Username = DefaultUsername(req.Username, emailNormalized),
-            Password = hasher.Hash(req.Password)
+            Password = hasher.Hash(req.Password),
+            PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage)
         };
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
 
         await EnsurePersonalFridgeAsync(user, ct);
 
-        var summary = new UserSummary(user.Id, user.Username, user.Email, EmailVerified: false);
+        var summary = new UserSummary(user.Id, user.Username, user.Email, EmailVerified: false, user.PreferredLanguage);
         await SendVerificationEmailAsync(user, ct);
         return (true, null, summary);
     }
@@ -224,7 +225,27 @@ public sealed class AuthService(
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return null;
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
-        return new UserSummary(user.Id, user.Username, user.Email, verified);
+        return new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage);
+    }
+
+    public const string PreferencesErrorUnsupportedLanguage = "UNSUPPORTED_LANGUAGE";
+
+    public async Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdatePreferencesAsync(
+        int userId,
+        UpdatePreferencesRequest req,
+        CancellationToken ct)
+    {
+        if (!SupportedLanguages.IsSupported(req.PreferredLanguage))
+            return (false, PreferencesErrorUnsupportedLanguage, null);
+
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null) return (false, null, null);
+
+        user.PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage);
+        await db.SaveChangesAsync(ct);
+
+        var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
+        return (true, null, new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage));
     }
 
     private async Task<TokenPair> IssueTokenPairAsync(User user, CancellationToken ct)
@@ -249,7 +270,7 @@ public sealed class AuthService(
             accessExpires,
             raw,
             refreshExpires,
-            new UserSummary(user.Id, user.Username, user.Email, verified));
+            new UserSummary(user.Id, user.Username, user.Email, verified, user.PreferredLanguage));
     }
 
     private async Task SendVerificationEmailAsync(User user, CancellationToken ct)

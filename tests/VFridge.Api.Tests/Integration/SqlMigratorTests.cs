@@ -88,7 +88,7 @@ public class SqlMigratorTests : IAsyncLifetime
         var applied = await db.Database
             .SqlQueryRaw<string>("SELECT name FROM schema_migrations ORDER BY name")
             .ToListAsync();
-        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql", "003_shopping_items.sql", "004_consumption_log.sql", "005_shared_fridges.sql", "006_username_display_name.sql");
+        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql", "003_shopping_items.sql", "004_consumption_log.sql", "005_shared_fridges.sql", "006_username_display_name.sql", "007_user_preferred_language.sql");
     }
 
     private IServiceScope BuildScope()
