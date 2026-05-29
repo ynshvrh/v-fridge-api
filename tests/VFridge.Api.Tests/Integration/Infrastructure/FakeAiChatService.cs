@@ -10,15 +10,19 @@ public sealed class FakeAiChatService : IAiChatService
 
     public string? LastCuisinePreference { get; private set; }
 
+    public string? LastLanguage { get; private set; }
+
     public Task<string?> GenerateReplyAsync(
         IReadOnlyList<(string Role, string Content)> history,
         string fridgeInventory,
         string userPrompt,
         string cuisinePreference,
+        string language,
         CancellationToken ct)
     {
         CallCount++;
         LastCuisinePreference = cuisinePreference;
+        LastLanguage = language;
         return Task.FromResult<string?>(Reply);
     }
 }

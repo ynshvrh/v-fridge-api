@@ -20,11 +20,19 @@ public sealed class FakeMealPlannerService : IMealPlannerService
 
     public int CallCount { get; private set; }
 
+    public string? LastCuisinePreference { get; private set; }
+
+    public string? LastLanguage { get; private set; }
+
     public Task<MealPlanResponse?> GenerateAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
         CancellationToken ct)
     {
         CallCount++;
+        LastCuisinePreference = cuisinePreference;
+        LastLanguage = language;
         return Task.FromResult(Response);
     }
 }

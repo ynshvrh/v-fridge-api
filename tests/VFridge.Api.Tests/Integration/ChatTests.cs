@@ -52,6 +52,26 @@ public class ChatTests : IAsyncLifetime
         _factory.Ai.LastCuisinePreference.Should().Be("any");
     }
 
+    [Fact]
+    public async Task PostMessage_PassesUserPreferredLanguage_To_Ai()
+    {
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { preferredLanguage = "uk" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
+
+        _factory.Ai.LastLanguage.Should().Be("uk");
+    }
+
+    [Fact]
+    public async Task PostMessage_DefaultsLanguage_To_En_WhenNotSet()
+    {
+        await _client.PostAsJsonAsync("/chat", new { content = "what to cook" });
+
+        _factory.Ai.LastLanguage.Should().Be("en");
+    }
+
     public Task DisposeAsync()
     {
         _client.Dispose();

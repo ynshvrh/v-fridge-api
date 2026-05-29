@@ -20,7 +20,7 @@ public class OpenRouterMaxTokensTests
             options,
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
-        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), CancellationToken.None);
+        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
         using var doc = JsonDocument.Parse(body!);
@@ -42,11 +42,56 @@ public class OpenRouterMaxTokensTests
             "empty fridge",
             "what's for dinner?",
             "any",
+            "en",
             CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
         using var doc = JsonDocument.Parse(body!);
         doc.RootElement.GetProperty("max_tokens").GetInt32().Should().Be(777);
+    }
+
+    [Fact]
+    public async Task MealPlanner_Includes_Cuisine_And_Language_Steering_In_Prompt()
+    {
+        var capture = new RequestCapturingHandler(CannedMealPlanResponse());
+        var service = new OpenRouterMealPlannerService(
+            new HttpClient(capture),
+            MakeOptions(maxTokens: 2048),
+            NullLogger<OpenRouterMealPlannerService>.Instance);
+
+        await service.GenerateAsync(
+            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(capture.LastRequestBody!);
+        var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
+            .Where(m => m.GetProperty("role").GetString() == "system")
+            .Select(m => m.GetProperty("content").GetString()));
+
+        systemText.Should().Contain("Ukrainian cuisine", "the cuisine preference must steer the plan");
+        systemText.Should().Contain("in Ukrainian", "the plan must be written in the user's language");
+        // Machine codes must stay English regardless of the requested language.
+        systemText.Should().Contain("meat-fish").And.Contain("Never translate");
+    }
+
+    [Fact]
+    public async Task MealPlanner_Stays_Neutral_For_Any_Cuisine_And_English()
+    {
+        var capture = new RequestCapturingHandler(CannedMealPlanResponse());
+        var service = new OpenRouterMealPlannerService(
+            new HttpClient(capture),
+            MakeOptions(maxTokens: 2048),
+            NullLogger<OpenRouterMealPlannerService>.Instance);
+
+        await service.GenerateAsync(
+            Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
+
+        using var doc = JsonDocument.Parse(capture.LastRequestBody!);
+        var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
+            .Where(m => m.GetProperty("role").GetString() == "system")
+            .Select(m => m.GetProperty("content").GetString()));
+
+        systemText.Should().NotContain("The user prefers");
+        systemText.Should().NotContain("in Ukrainian");
     }
 
     [Fact]
