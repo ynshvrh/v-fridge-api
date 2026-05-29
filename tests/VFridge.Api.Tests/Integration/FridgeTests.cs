@@ -69,21 +69,16 @@ public class FridgeTests : IAsyncLifetime
         var del = await _client.DeleteAsync($"/fridges/{extraId}");
         del.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Deleting the last owned fridge transparently spawns a fresh empty
-        // replacement so the caller still has a working active-fridge target.
+        // Deleting the last owned fridge is allowed. The user is left without
+        // any fridge — clients surface an empty state with a "Create your
+        // first fridge" CTA instead of the server fabricating one.
         var lastDel = await _client.DeleteAsync($"/fridges/{personalId}");
         lastDel.StatusCode.Should().Be(HttpStatusCode.OK);
-        var body = await lastDel.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("success").GetBoolean().Should().BeTrue();
-        var replacementId = body.GetProperty("replacementFridgeId").GetInt32();
-        replacementId.Should().NotBe(personalId);
-        body.GetProperty("replacementFridgeName").GetString().Should().Be("My fridge");
+        (await lastDel.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("success").GetBoolean().Should().BeTrue();
 
-        // List should contain exactly the replacement now.
         var after = await _client.GetFromJsonAsync<JsonElement>("/fridges");
-        after.GetArrayLength().Should().Be(1);
-        after[0].GetProperty("id").GetInt32().Should().Be(replacementId);
-        after[0].GetProperty("role").GetString().Should().Be("owner");
+        after.GetArrayLength().Should().Be(0);
     }
 
     [Fact]
