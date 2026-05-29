@@ -72,10 +72,13 @@ public static class MealPlanEndpoints
 
     private static async Task<IResult> GenerateAsync(
         VFridgeDbContext db,
+        ICurrentUser me,
         FridgeContext fridgeContext,
         IMealPlannerService planner,
         CancellationToken ct)
     {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+
         var resolved = await fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
@@ -85,7 +88,17 @@ public static class MealPlanEndpoints
             .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
             .ToListAsync(ct);
 
-        var plan = await planner.GenerateAsync(inventory, ct);
+        // Steer the plan by the same stored preferences the chef uses, so the two stay
+        // consistent (a Ukrainian-cuisine user gets borscht, not random tacos) and the plan
+        // is written in the user's language. Read from the user record, not Accept-Language.
+        var prefs = await db.Users
+            .Where(u => u.Id == uid)
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
+            .FirstOrDefaultAsync(ct);
+        var cuisinePreference = SupportedCuisines.Normalize(prefs?.CuisinePreference);
+        var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+
+        var plan = await planner.GenerateAsync(inventory, cuisinePreference, language, ct);
         if (plan is null)
         {
             return Results.Problem(

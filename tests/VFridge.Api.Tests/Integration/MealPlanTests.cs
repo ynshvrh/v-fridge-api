@@ -45,6 +45,30 @@ public class MealPlanTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Generate_PassesUserCuisineAndLanguage_To_Planner()
+    {
+        var patch = await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { cuisinePreference = "ukrainian", preferredLanguage = "uk" }));
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var resp = await _client.PostAsync("/meal-plan", null);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Planner.LastCuisinePreference.Should().Be("ukrainian");
+        _factory.Planner.LastLanguage.Should().Be("uk");
+    }
+
+    [Fact]
+    public async Task Generate_DefaultsCuisineAndLanguage_WhenNotSet()
+    {
+        var resp = await _client.PostAsync("/meal-plan", null);
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Planner.LastCuisinePreference.Should().Be("any");
+        _factory.Planner.LastLanguage.Should().Be("en");
+    }
+
+    [Fact]
     public async Task Generate_BadGatewayWhenPlannerNull()
     {
         _factory.Planner.Response = null;

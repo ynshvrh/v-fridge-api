@@ -41,17 +41,29 @@ public class SupportedLanguagesTests
     [Fact]
     public void CultureContext_Is_Empty_For_Any_And_Populated_For_Concrete_Cuisines()
     {
-        OpenRouterChatService.CultureContextFor("any").Should().BeNull();
-        OpenRouterChatService.CultureContextFor("unknown").Should().BeNull();
+        AiPrompts.CultureContextFor("any").Should().BeNull();
+        AiPrompts.CultureContextFor("unknown").Should().BeNull();
 
-        OpenRouterChatService.CultureContextFor("ukrainian")
+        AiPrompts.CultureContextFor("ukrainian")
             .Should().NotBeNullOrWhiteSpace()
             .And.Subject.ToString().Should().Contain("Ukrainian").And.Contain("borscht");
-        OpenRouterChatService.CultureContextFor("georgian")
+        AiPrompts.CultureContextFor("georgian")
             .Should().NotBeNullOrWhiteSpace()
             .And.Subject.ToString().Should().Contain("Georgian").And.Contain("khachapuri");
-        OpenRouterChatService.CultureContextFor("japanese")
+        AiPrompts.CultureContextFor("japanese")
             .Should().NotBeNullOrWhiteSpace()
             .And.Subject.ToString().Should().Contain("Japanese").And.Contain("ramen");
+    }
+
+    [Fact]
+    public void LanguageInstruction_Is_Null_For_English_And_Populated_For_Ukrainian()
+    {
+        // English is the model's default — no instruction wastes prompt budget.
+        AiPrompts.LanguageInstructionFor("en").Should().BeNull();
+        AiPrompts.LanguageInstructionFor("unknown").Should().BeNull();
+
+        AiPrompts.LanguageInstructionFor("uk")
+            .Should().NotBeNullOrWhiteSpace()
+            .And.Subject.ToString().Should().Contain("Ukrainian");
     }
 }

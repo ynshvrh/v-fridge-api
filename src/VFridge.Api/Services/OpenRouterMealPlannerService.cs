@@ -21,13 +21,18 @@ public sealed class OpenRouterMealPlannerService(
         "Respond with strict JSON matching this schema, no prose: " +
         "{\"meals\":[{\"name\":string,\"day\":string,\"ingredients\":[string],\"note\":string?}]," +
         "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
-        "Category must be one of: dairy, meat-fish, vegetables, fruits, bakery, pantry, snacks, drinks, " +
-        "alcohol, sauces, frozen, canned-prepared, other.";
+        "The \"day\" value must always be one of the English weekday names above, and \"category\" must " +
+        "always be one of these English codes: dairy, meat-fish, vegetables, fruits, bakery, pantry, " +
+        "snacks, drinks, alcohol, sauces, frozen, canned-prepared, other. " +
+        "Never translate \"day\" or \"category\" — they are machine codes. If asked to write in another " +
+        "language, translate only \"name\", \"note\" and the \"ingredients\" strings.";
 
     private readonly OpenRouterOptions _opts = options.Value;
 
     public async Task<MealPlanResponse?> GenerateAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -41,11 +46,15 @@ public sealed class OpenRouterMealPlannerService(
             : "Current inventory:\n" + string.Join("\n",
                 inventory.Select(i => $"- {i.Name} [{ProductCategories.Label(i.Category)}] ({i.Quantity} {i.Unit})"));
 
-        var messages = new List<ChatMessage>
-        {
-            new("system", SystemPrompt),
-            new("user", inventoryText)
-        };
+        var messages = new List<ChatMessage> { new("system", SystemPrompt) };
+
+        var culture = AiPrompts.CultureContextFor(SupportedCuisines.Normalize(cuisinePreference));
+        if (culture is not null) messages.Add(new ChatMessage("system", culture));
+
+        var languageInstruction = AiPrompts.LanguageInstructionFor(SupportedLanguages.Normalize(language));
+        if (languageInstruction is not null) messages.Add(new ChatMessage("system", languageInstruction));
+
+        messages.Add(new ChatMessage("user", inventoryText));
 
         var body = new ChatCompletionRequest(
             _opts.Model,

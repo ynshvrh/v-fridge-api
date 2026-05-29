@@ -99,14 +99,16 @@ public static class ChatEndpoints
             .Select(c => new { c.Role, c.Content })
             .ToListAsync(ct);
 
-        // Cuisine preference steers the chef. We read it from the user record (not
-        // Accept-Language) so the choice is portable across devices and not tied to the
-        // user's UI language. Falls back to "any" for accounts that have never set it.
-        var storedCuisine = await db.Users
+        // Cuisine preference steers the chef and preferred language sets the reply language.
+        // Both come from the user record (not Accept-Language) so the choices are portable
+        // across devices and not tied to whatever locale the current client renders in. They
+        // fall back to "any" / "en" for accounts that have never set them.
+        var prefs = await db.Users
             .Where(u => u.Id == uid)
-            .Select(u => u.CuisinePreference)
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
             .FirstOrDefaultAsync(ct);
-        var cuisinePreference = Contracts.SupportedCuisines.Normalize(storedCuisine);
+        var cuisinePreference = Contracts.SupportedCuisines.Normalize(prefs?.CuisinePreference);
+        var language = Contracts.SupportedLanguages.Normalize(prefs?.PreferredLanguage);
 
         string? aiText;
         try
@@ -116,6 +118,7 @@ public static class ChatEndpoints
                 inventoryStr,
                 req.Content,
                 cuisinePreference,
+                language,
                 ct);
         }
         catch (Exception ex)
