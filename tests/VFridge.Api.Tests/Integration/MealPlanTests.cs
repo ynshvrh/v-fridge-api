@@ -53,6 +53,45 @@ public class MealPlanTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Get_ReturnsNoContent_WhenNothingGenerated()
+    {
+        var resp = await _client.GetAsync("/meal-plan");
+        resp.StatusCode.Should().Be(HttpStatusCode.NoContent);
+    }
+
+    [Fact]
+    public async Task Generate_PersistsPlan_AndGetReturnsCachedRow()
+    {
+        var gen = await _client.PostAsync("/meal-plan", null);
+        gen.StatusCode.Should().Be(HttpStatusCode.OK);
+        var generated = await gen.Content.ReadFromJsonAsync<JsonElement>();
+
+        var cached = await _client.GetAsync("/meal-plan");
+        cached.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await cached.Content.ReadFromJsonAsync<JsonElement>();
+
+        // Same meals + gaps as the generate response, plus a generatedAt
+        // timestamp that round-trips through Postgres.
+        body.GetProperty("meals").GetArrayLength()
+            .Should().Be(generated.GetProperty("meals").GetArrayLength());
+        body.GetProperty("gapItems").GetArrayLength()
+            .Should().Be(generated.GetProperty("gapItems").GetArrayLength());
+        body.GetProperty("generatedAt").GetDateTime()
+            .Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(5));
+    }
+
+    [Fact]
+    public async Task Generate_TwiceOnSameFridge_StoresExactlyOneRow()
+    {
+        await _client.PostAsync("/meal-plan", null);
+        await _client.PostAsync("/meal-plan", null);
+
+        using var scope = _factory.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<VFridgeDbContext>();
+        (await db.MealPlans.CountAsync()).Should().Be(1);
+    }
+
+    [Fact]
     public async Task ImportGaps_AddsItems_AndDedupesByName()
     {
         // Pre-seed an existing shopping item.

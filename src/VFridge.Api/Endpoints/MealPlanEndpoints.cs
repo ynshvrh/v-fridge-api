@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
@@ -9,14 +10,31 @@ namespace VFridge.Api.Endpoints;
 
 public static class MealPlanEndpoints
 {
+    // JSON shape for the cached blob columns. Kept stable — extending the
+    // MealPlanResponse contract is fine, but renaming fields without a
+    // migration would silently break restore.
+    private static readonly JsonSerializerOptions CacheJson = new(JsonSerializerDefaults.Web);
+
     public static IEndpointRouteBuilder MapMealPlanEndpoints(this IEndpointRouteBuilder app)
     {
-        var group = app.MapGroup("/meal-plan").WithTags("MealPlan").RequireRateLimiting("chat");
+        // Both GET and POST live in the same group; only POST hits OpenRouter,
+        // so we attach the chat rate-limit to it explicitly and leave GET
+        // (which is a pure DB read) unthrottled.
+        var group = app.MapGroup("/meal-plan").WithTags("MealPlan");
+
+        group.MapGet("/", GetCachedAsync)
+            .WithName("GetCachedMealPlan")
+            .WithSummary("Return the most recently generated plan for the active fridge")
+            .WithDescription("204 No Content when nothing has ever been generated. Clients open the planner screen with this and only POST to regenerate.")
+            .Produces<MealPlanResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status204NoContent)
+            .Produces(StatusCodes.Status401Unauthorized);
 
         group.MapPost("/", GenerateAsync)
+            .RequireRateLimiting("chat")
             .WithName("GenerateMealPlan")
             .WithSummary("Generate a 5-meal weekday plan")
-            .WithDescription("Builds the prompt from the caller's current inventory and returns the AI's suggestions. Reuses the same chat rate-limit bucket (5 calls / 60 s per user) since both endpoints hit OpenRouter.")
+            .WithDescription("Builds the prompt from the caller's current inventory, generates a fresh plan via the LLM, and upserts it onto the active fridge's cached row (one row per fridge). Reuses the chat rate-limit bucket (5 calls / 60 s per user).")
             .Produces<MealPlanResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized)
             .Produces(StatusCodes.Status429TooManyRequests)
@@ -32,6 +50,26 @@ public static class MealPlanEndpoints
         return app;
     }
 
+    private static async Task<IResult> GetCachedAsync(
+        VFridgeDbContext db,
+        FridgeContext fridgeContext,
+        CancellationToken ct)
+    {
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
+
+        var row = await db.MealPlans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.FridgeId == resolved.Value.FridgeId, ct);
+        if (row is null) return Results.NoContent();
+
+        var meals = JsonSerializer.Deserialize<List<MealPlanMeal>>(row.MealsJson, CacheJson)
+                    ?? new List<MealPlanMeal>();
+        var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
+                   ?? new List<MealPlanGapItem>();
+        return Results.Ok(new MealPlanResponse(meals, gaps, row.UpdatedAt));
+    }
+
     private static async Task<IResult> GenerateAsync(
         VFridgeDbContext db,
         FridgeContext fridgeContext,
@@ -41,8 +79,9 @@ public static class MealPlanEndpoints
         var resolved = await fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
+        var fridgeId = resolved.Value.FridgeId;
         var inventory = await db.Products
-            .Where(p => p.FridgeId == resolved.Value.FridgeId)
+            .Where(p => p.FridgeId == fridgeId)
             .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
             .ToListAsync(ct);
 
@@ -54,7 +93,34 @@ public static class MealPlanEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        return Results.Ok(plan);
+        // Upsert the cached row for this fridge. We serialize meals + gaps
+        // separately so a future migration could pivot to typed columns
+        // without rewriting blobs in two places.
+        var mealsJson = JsonSerializer.Serialize(plan.Meals, CacheJson);
+        var gapsJson = JsonSerializer.Serialize(plan.GapItems, CacheJson);
+        var now = DateTime.UtcNow;
+
+        var existing = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        if (existing is null)
+        {
+            db.MealPlans.Add(new MealPlanRecord
+            {
+                FridgeId = fridgeId,
+                MealsJson = mealsJson,
+                GapItemsJson = gapsJson,
+                CreatedAt = now,
+                UpdatedAt = now
+            });
+        }
+        else
+        {
+            existing.MealsJson = mealsJson;
+            existing.GapItemsJson = gapsJson;
+            existing.UpdatedAt = now;
+        }
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(plan with { GeneratedAt = now });
     }
 
     public sealed record ImportGapsRequest(IReadOnlyList<MealPlanGapItem> Items);

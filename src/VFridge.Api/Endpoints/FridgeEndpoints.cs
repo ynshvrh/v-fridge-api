@@ -41,11 +41,10 @@ public static class FridgeEndpoints
 
         group.MapDelete("/{id:int}", DeleteAsync)
             .WithName("DeleteFridge")
-            .WithSummary("Delete a fridge (owner only). Cascades products / members / invites.")
+            .WithSummary("Delete a fridge (owner only). Cascades products / members / invites. If this was the caller's last owned fridge, atomically creates an empty 'My fridge' replacement so they always have a working context.")
             .Produces(StatusCodes.Status200OK)
             .Produces<ApiError>(StatusCodes.Status403Forbidden)
-            .Produces<ApiError>(StatusCodes.Status404NotFound)
-            .Produces<ApiError>(StatusCodes.Status409Conflict);
+            .Produces<ApiError>(StatusCodes.Status404NotFound);
 
         group.MapDelete("/{id:int}/members/me", LeaveAsync)
             .WithName("LeaveFridge")
@@ -149,17 +148,42 @@ public static class FridgeEndpoints
             return Results.Json(new { code = "NOT_FRIDGE_OWNER", error = "Only the owner can delete a fridge" },
                 statusCode: StatusCodes.Status403Forbidden);
 
-        // Don't let a user delete their LAST owned fridge — they'd have nowhere to put products.
+        // If this would leave the user without any owned fridge, atomically
+        // create a fresh empty "My fridge" so every subsequent request still
+        // has a valid active-fridge target. The response carries the
+        // replacement id/name so the client can swap its persisted X-Fridge-Id
+        // without an extra round-trip.
         var owned = await db.Fridges.CountAsync(f => f.OwnerId == uid, ct);
+        Fridge? replacement = null;
+
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
         if (owned <= 1)
         {
-            return Results.Json(new { code = "LAST_FRIDGE", error = "Cannot delete your only fridge" },
-                statusCode: StatusCodes.Status409Conflict);
+            replacement = new Fridge { Name = "My fridge", OwnerId = uid };
+            db.Fridges.Add(replacement);
+            await db.SaveChangesAsync(ct);
+
+            db.FridgeMembers.Add(new FridgeMember
+            {
+                FridgeId = replacement.Id,
+                UserId = uid,
+                Role = FridgeRoles.Owner
+            });
+            await db.SaveChangesAsync(ct);
         }
 
         db.Fridges.Remove(fridge);
         await db.SaveChangesAsync(ct);
-        return Results.Ok(new { success = true });
+        await tx.CommitAsync(ct);
+
+        return replacement is null
+            ? Results.Ok(new { success = true })
+            : Results.Ok(new
+            {
+                success = true,
+                replacementFridgeId = replacement.Id,
+                replacementFridgeName = replacement.Name
+            });
     }
 
     private static async Task<IResult> LeaveAsync(int id, VFridgeDbContext db, ICurrentUser me, CancellationToken ct)

@@ -2,7 +2,8 @@ namespace VFridge.Api.Contracts;
 
 public sealed record MealPlanResponse(
     IReadOnlyList<MealPlanMeal> Meals,
-    IReadOnlyList<MealPlanGapItem> GapItems);
+    IReadOnlyList<MealPlanGapItem> GapItems,
+    DateTime GeneratedAt);
 
 public sealed record MealPlanMeal(
     string Name,

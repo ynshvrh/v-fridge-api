@@ -65,16 +65,25 @@ public class FridgeTests : IAsyncLifetime
         create.StatusCode.Should().Be(HttpStatusCode.Created);
         var extraId = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
 
-        // Deleting the only would-be-remaining-personal fridge is blocked,
-        // but the second one can go.
+        // The extra fridge deletes cleanly.
         var del = await _client.DeleteAsync($"/fridges/{extraId}");
         del.StatusCode.Should().Be(HttpStatusCode.OK);
 
-        // Can't delete the LAST fridge.
+        // Deleting the last owned fridge transparently spawns a fresh empty
+        // replacement so the caller still has a working active-fridge target.
         var lastDel = await _client.DeleteAsync($"/fridges/{personalId}");
-        lastDel.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await lastDel.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("code").GetString().Should().Be("LAST_FRIDGE");
+        lastDel.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await lastDel.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("success").GetBoolean().Should().BeTrue();
+        var replacementId = body.GetProperty("replacementFridgeId").GetInt32();
+        replacementId.Should().NotBe(personalId);
+        body.GetProperty("replacementFridgeName").GetString().Should().Be("My fridge");
+
+        // List should contain exactly the replacement now.
+        var after = await _client.GetFromJsonAsync<JsonElement>("/fridges");
+        after.GetArrayLength().Should().Be(1);
+        after[0].GetProperty("id").GetInt32().Should().Be(replacementId);
+        after[0].GetProperty("role").GetString().Should().Be("owner");
     }
 
     [Fact]
