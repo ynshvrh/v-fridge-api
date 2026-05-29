@@ -104,7 +104,7 @@ public sealed class OpenRouterMealPlannerService(
                     .ToList()
                 : new List<MealPlanGapItem>();
 
-            return new MealPlanResponse(meals, gapItems);
+            return new MealPlanResponse(meals, gapItems, DateTime.UtcNow);
         }
         catch (JsonException ex)
         {

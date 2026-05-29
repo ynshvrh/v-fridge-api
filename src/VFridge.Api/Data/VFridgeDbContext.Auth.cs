@@ -14,6 +14,7 @@ public partial class VFridgeDbContext
     public DbSet<Fridge> Fridges => Set<Fridge>();
     public DbSet<FridgeMember> FridgeMembers => Set<FridgeMember>();
     public DbSet<FridgeInvite> FridgeInvites => Set<FridgeInvite>();
+    public DbSet<MealPlanRecord> MealPlans => Set<MealPlanRecord>();
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder)
     {
@@ -200,6 +201,31 @@ public partial class VFridgeDbContext
 
             entity.HasIndex(e => new { e.UserId, e.ConsumedAt }).HasDatabaseName("ix_consumption_log_user_consumed_at");
             entity.HasIndex(e => new { e.UserId, e.Status }).HasDatabaseName("ix_consumption_log_user_status");
+        });
+
+        modelBuilder.Entity<MealPlanRecord>(entity =>
+        {
+            entity.ToTable("meal_plans");
+            entity.HasKey(e => e.Id);
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
+            entity.Property(e => e.MealsJson).HasColumnName("meals_json");
+            entity.Property(e => e.GapItemsJson).HasColumnName("gap_items_json");
+            entity.Property(e => e.CreatedAt)
+                .HasColumnName("created_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+            entity.Property(e => e.UpdatedAt)
+                .HasColumnName("updated_at")
+                .HasColumnType("timestamp without time zone")
+                .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.HasIndex(e => e.FridgeId).IsUnique();
+
+            entity.HasOne(e => e.Fridge).WithMany()
+                .HasForeignKey(e => e.FridgeId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RefreshToken>(entity =>

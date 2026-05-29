@@ -15,7 +15,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         {
             new("pasta", "200", "g", "pantry"),
             new("tomato sauce", "1", "jar", "sauces"),
-        });
+        },
+        DateTime.UtcNow);
 
     public int CallCount { get; private set; }
 
