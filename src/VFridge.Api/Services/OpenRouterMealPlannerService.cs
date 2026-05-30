@@ -16,16 +16,29 @@ public sealed class OpenRouterMealPlannerService(
     private const string SystemPrompt =
         "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 5 distinct " +
         "weekday meals (assign each to one of Monday, Tuesday, Wednesday, Thursday, Friday). For each meal " +
-        "list its ingredients. Use what is in the fridge wherever possible; only ask for extra ingredients " +
-        "when the meal genuinely needs them. " +
+        "give a one-sentence description, the list of ingredients, and short numbered cooking steps. Use " +
+        "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
+        "needs them. " +
         "Respond with strict JSON matching this schema, no prose: " +
-        "{\"meals\":[{\"name\":string,\"day\":string,\"ingredients\":[string],\"note\":string?}]," +
+        "{\"meals\":[{\"name\":string,\"day\":string,\"description\":string,\"ingredients\":[string],\"steps\":[string],\"note\":string?}]," +
         "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
-        "The \"day\" value must always be one of the English weekday names above, and \"category\" must " +
-        "always be one of these English codes: dairy, meat-fish, vegetables, fruits, bakery, pantry, " +
-        "snacks, drinks, alcohol, sauces, frozen, canned-prepared, other. " +
+        DayAndCategoryRule;
+
+    private const string SingleMealSystemPrompt =
+        "You are V-Fridge's meal planner. Propose exactly ONE meal for the requested weekday based on the " +
+        "user's current inventory. Give a one-sentence description, the list of ingredients, and short " +
+        "numbered cooking steps. " +
+        "Respond with strict JSON matching this schema, no prose: " +
+        "{\"name\":string,\"day\":string,\"description\":string,\"ingredients\":[string],\"steps\":[string],\"note\":string?} " +
+        DayAndCategoryRule;
+
+    // Shared trailing rule: machine codes stay English no matter the requested language.
+    private const string DayAndCategoryRule =
+        "The \"day\" value must always be one of the English weekday names Monday, Tuesday, Wednesday, " +
+        "Thursday, Friday, and \"category\" must always be one of these English codes: dairy, meat-fish, " +
+        "vegetables, fruits, bakery, pantry, snacks, drinks, alcohol, sauces, frozen, canned-prepared, other. " +
         "Never translate \"day\" or \"category\" — they are machine codes. If asked to write in another " +
-        "language, translate only \"name\", \"note\" and the \"ingredients\" strings.";
+        "language, translate only \"name\", \"description\", \"note\" and the \"ingredients\"/\"steps\" strings.";
 
     private readonly OpenRouterOptions _opts = options.Value;
 
@@ -41,12 +54,62 @@ public sealed class OpenRouterMealPlannerService(
             return null;
         }
 
-        var inventoryText = inventory.Count == 0
+        var messages = BuildMessages(SystemPrompt, cuisinePreference, language, InventoryText(inventory));
+
+        var root = await SendAndParseAsync(messages, "meal-plan", ct);
+        if (root is null) return null;
+
+        var meals = root.Value.TryGetProperty("meals", out var mealsEl) && mealsEl.ValueKind == JsonValueKind.Array
+            ? mealsEl.EnumerateArray().Select(ParseMeal).Where(m => m is not null).Select(m => m!).ToList()
+            : new List<MealPlanMeal>();
+
+        var gapItems = root.Value.TryGetProperty("gapItems", out var gapsEl) && gapsEl.ValueKind == JsonValueKind.Array
+            ? gapsEl.EnumerateArray().Select(ParseGap).Where(g => g is not null).Select(g => g!).ToList()
+            : new List<MealPlanGapItem>();
+
+        return new MealPlanResponse(meals, gapItems, DateTime.UtcNow);
+    }
+
+    public async Task<MealPlanMeal?> RegenerateDayAsync(
+        IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
+        string day,
+        IReadOnlyList<string> avoidMealNames,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_opts.ApiKey))
+        {
+            logger.LogWarning("OpenRouter ApiKey is not configured; cannot regenerate a meal");
+            return null;
+        }
+
+        var avoid = avoidMealNames.Count > 0
+            ? " Do not repeat any of these existing dishes: " + string.Join(", ", avoidMealNames) + "."
+            : string.Empty;
+        var userText = $"Propose one meal for {day}.{avoid}\n\n{InventoryText(inventory)}";
+
+        var messages = BuildMessages(SingleMealSystemPrompt, cuisinePreference, language, userText);
+
+        var root = await SendAndParseAsync(messages, "regenerate-day", ct);
+        if (root is null) return null;
+
+        var meal = ParseMeal(root.Value);
+        if (meal is null) return null;
+
+        // Pin the day to the requested code — the model occasionally drifts or localises it.
+        return meal with { Day = day };
+    }
+
+    private static string InventoryText(IReadOnlyList<MealPlanInventoryItem> inventory) =>
+        inventory.Count == 0
             ? "The fridge is empty."
             : "Current inventory:\n" + string.Join("\n",
                 inventory.Select(i => $"- {i.Name} [{ProductCategories.Label(i.Category)}] ({i.Quantity} {i.Unit})"));
 
-        var messages = new List<ChatMessage> { new("system", SystemPrompt) };
+    private static List<ChatMessage> BuildMessages(string systemPrompt, string cuisinePreference, string language, string userText)
+    {
+        var messages = new List<ChatMessage> { new("system", systemPrompt) };
 
         var culture = AiPrompts.CultureContextFor(SupportedCuisines.Normalize(cuisinePreference));
         if (culture is not null) messages.Add(new ChatMessage("system", culture));
@@ -54,13 +117,14 @@ public sealed class OpenRouterMealPlannerService(
         var languageInstruction = AiPrompts.LanguageInstructionFor(SupportedLanguages.Normalize(language));
         if (languageInstruction is not null) messages.Add(new ChatMessage("system", languageInstruction));
 
-        messages.Add(new ChatMessage("user", inventoryText));
+        messages.Add(new ChatMessage("user", userText));
+        return messages;
+    }
 
-        var body = new ChatCompletionRequest(
-            _opts.Model,
-            messages,
-            new ResponseFormat("json_object"),
-            _opts.MaxTokens);
+    /// <summary>Sends the chat request, returns the parsed JSON root, or null on any transport/parse failure.</summary>
+    private async Task<JsonElement?> SendAndParseAsync(List<ChatMessage> messages, string label, CancellationToken ct)
+    {
+        var body = new ChatCompletionRequest(_opts.Model, messages, new ResponseFormat("json_object"), _opts.MaxTokens);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_opts.BaseUrl.TrimEnd('/')}/chat/completions")
         {
@@ -74,7 +138,7 @@ public sealed class OpenRouterMealPlannerService(
         if (!response.IsSuccessStatusCode)
         {
             var raw = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("OpenRouter meal-plan call failed: {Status} — {Body}", (int)response.StatusCode, raw);
+            logger.LogError("OpenRouter {Label} call failed: {Status} — {Body}", label, (int)response.StatusCode, raw);
             return null;
         }
 
@@ -84,43 +148,57 @@ public sealed class OpenRouterMealPlannerService(
 
         try
         {
+            // Clone so the JsonElement stays valid after the JsonDocument is disposed.
             using var doc = JsonDocument.Parse(content);
-            var root = doc.RootElement;
-
-            var meals = root.TryGetProperty("meals", out var mealsEl) && mealsEl.ValueKind == JsonValueKind.Array
-                ? mealsEl.EnumerateArray()
-                    .Select(m => new MealPlanMeal(
-                        m.GetProperty("name").GetString() ?? "",
-                        m.TryGetProperty("day", out var d) ? d.GetString() ?? "" : "",
-                        m.TryGetProperty("ingredients", out var ing) && ing.ValueKind == JsonValueKind.Array
-                            ? ing.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length > 0).ToList()
-                            : new List<string>(),
-                        m.TryGetProperty("note", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null))
-                    .Where(m => !string.IsNullOrWhiteSpace(m.Name))
-                    .ToList()
-                : new List<MealPlanMeal>();
-
-            var gapItems = root.TryGetProperty("gapItems", out var gapsEl) && gapsEl.ValueKind == JsonValueKind.Array
-                ? gapsEl.EnumerateArray()
-                    .Select(g => new MealPlanGapItem(
-                        g.GetProperty("name").GetString() ?? "",
-                        g.TryGetProperty("quantity", out var q) && q.ValueKind != JsonValueKind.Null ? q.ToString() : null,
-                        g.TryGetProperty("unit", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null,
-                        g.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String
-                            ? (ProductCategories.IsValid(c.GetString() ?? "") ? c.GetString()! : ProductCategories.Other)
-                            : ProductCategories.Other))
-                    .Where(g => !string.IsNullOrWhiteSpace(g.Name))
-                    .ToList()
-                : new List<MealPlanGapItem>();
-
-            return new MealPlanResponse(meals, gapItems, DateTime.UtcNow);
+            return doc.RootElement.Clone();
         }
         catch (JsonException ex)
         {
-            logger.LogError(ex, "OpenRouter meal-plan response was not valid JSON: {Content}", content);
+            logger.LogError(ex, "OpenRouter {Label} response was not valid JSON: {Content}", label, content);
             return null;
         }
     }
+
+    private static MealPlanMeal? ParseMeal(JsonElement m)
+    {
+        if (m.ValueKind != JsonValueKind.Object) return null;
+        var name = m.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        var day = m.TryGetProperty("day", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() ?? "" : "";
+        var description = m.TryGetProperty("description", out var desc) && desc.ValueKind == JsonValueKind.String
+            ? desc.GetString()
+            : null;
+        var ingredients = StringList(m, "ingredients");
+        var steps = StringList(m, "steps");
+        var note = m.TryGetProperty("note", out var nt) && nt.ValueKind == JsonValueKind.String ? nt.GetString() : null;
+
+        return new MealPlanMeal(name, day, ingredients, note, description, steps);
+    }
+
+    private static MealPlanGapItem? ParseGap(JsonElement g)
+    {
+        if (g.ValueKind != JsonValueKind.Object) return null;
+        var name = g.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        var quantity = g.TryGetProperty("quantity", out var q) && q.ValueKind != JsonValueKind.Null ? q.ToString() : null;
+        var unit = g.TryGetProperty("unit", out var u) && u.ValueKind == JsonValueKind.String ? u.GetString() : null;
+        var category = g.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String
+            ? (ProductCategories.IsValid(c.GetString() ?? "") ? c.GetString()! : ProductCategories.Other)
+            : ProductCategories.Other;
+
+        return new MealPlanGapItem(name, quantity, unit, category);
+    }
+
+    private static List<string> StringList(JsonElement parent, string property) =>
+        parent.TryGetProperty(property, out var el) && el.ValueKind == JsonValueKind.Array
+            ? el.EnumerateArray()
+                .Where(x => x.ValueKind == JsonValueKind.String)
+                .Select(x => x.GetString() ?? "")
+                .Where(x => x.Length > 0)
+                .ToList()
+            : new List<string>();
 
     private sealed record ChatMessage(
         [property: JsonPropertyName("role")] string Role,
