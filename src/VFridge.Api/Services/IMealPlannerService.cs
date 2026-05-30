@@ -29,6 +29,20 @@ public interface IMealPlannerService
         string day,
         IReadOnlyList<string> avoidMealNames,
         CancellationToken ct);
+
+    /// <summary>
+    /// Fetches the description + cooking steps for a single already-chosen dish, written in the
+    /// user's language. Used to lazily fill in a meal's recipe the first time the user opens it,
+    /// keeping each call small enough for the free-tier token budget. Returns null when the
+    /// provider is unavailable or returns a malformed payload.
+    /// </summary>
+    Task<MealRecipe?> GenerateRecipeAsync(
+        string mealName,
+        IReadOnlyList<string> ingredients,
+        string language,
+        CancellationToken ct);
 }
 
 public sealed record MealPlanInventoryItem(string Name, decimal Quantity, string Unit, string Category);
+
+public sealed record MealRecipe(string? Description, IReadOnlyList<string> Steps);

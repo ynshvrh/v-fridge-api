@@ -10,13 +10,13 @@ public sealed class OpenRouterOptions
 
     /// <summary>
     /// Cap on tokens OpenRouter is allowed to generate per call. OpenRouter reserves
-    /// credits up-front against the requested ceiling, so leaving it open at the model
-    /// max (e.g. 16k) makes low-balance accounts fail with HTTP 402 even on tiny
-    /// responses. 4096 fits a 5-meal plan that now carries per-meal descriptions and
-    /// cooking steps, including in Ukrainian where Cyrillic costs more tokens. If 402s
-    /// appear on a low balance, lower this.
+    /// credits up-front against the requested ceiling, so a free / low-balance account
+    /// gets a 402 ("can only afford N tokens") when this exceeds the remaining budget.
+    /// 2048 stays within the free tier. To keep meal recipes within this ceiling the
+    /// planner generates a light plan (names + ingredients) and fetches each recipe
+    /// lazily, one meal at a time — see OpenRouterMealPlannerService.
     /// </summary>
-    public int MaxTokens { get; set; } = 4096;
+    public int MaxTokens { get; set; } = 2048;
 
     /// <summary>Optional HTTP-Referer header value — OpenRouter uses it for app attribution.</summary>
     public string? Referer { get; set; } = "https://v-fridge.app";

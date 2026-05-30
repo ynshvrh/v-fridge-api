@@ -171,6 +171,68 @@ public class MealPlanTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task GetRecipe_FillsInSteps_ForThatDay_AndCaches()
+    {
+        await _client.PostAsync("/meal-plan", null); // light plan, no steps
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Monday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        var monday = body.GetProperty("meals").EnumerateArray()
+            .Single(m => m.GetProperty("day").GetString() == "Monday");
+        monday.GetProperty("steps").GetArrayLength().Should().BeGreaterThan(0, "the recipe was filled in");
+        monday.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+
+        _factory.Planner.RecipeCallCount.Should().Be(1);
+        _factory.Planner.LastRecipeMealName.Should().Be("Tomato pasta");
+
+        // Second call for the same day must NOT hit the planner again — recipe is cached.
+        var again = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Monday" });
+        again.StatusCode.Should().Be(HttpStatusCode.OK);
+        _factory.Planner.RecipeCallCount.Should().Be(1, "the cached recipe is reused, no extra LLM call");
+    }
+
+    [Fact]
+    public async Task GetRecipe_PassesPreferredLanguage_ToPlanner()
+    {
+        await _client.PatchAsync("/auth/me/preferences", JsonContent.Create(new { preferredLanguage = "uk" }));
+        await _client.PostAsync("/meal-plan", null);
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Tuesday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Planner.LastRecipeLanguage.Should().Be("uk");
+    }
+
+    [Fact]
+    public async Task GetRecipe_NotFound_WhenNoPlan()
+    {
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Monday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("MEAL_PLAN_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task GetRecipe_NotFound_WhenDayHasNoMeal()
+    {
+        await _client.PostAsync("/meal-plan", null); // only Monday + Tuesday in the fake plan
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Friday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("MEAL_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task GetRecipe_ValidationError_ForUnsupportedDay()
+    {
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Sunday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task ImportGaps_AddsItems_AndDedupesByName()
     {
         // Pre-seed an existing shopping item.

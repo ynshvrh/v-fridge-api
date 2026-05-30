@@ -99,7 +99,7 @@ public class OpenRouterMaxTokensTests
     {
         // Anchors the chosen ceiling — small enough to survive on free OpenRouter credit,
         // large enough for a meal plan or chat reply. Bumping this is a deliberate decision.
-        new OpenRouterOptions().MaxTokens.Should().Be(4096);
+        new OpenRouterOptions().MaxTokens.Should().Be(2048);
     }
 
     private static IOptions<OpenRouterOptions> MakeOptions(int maxTokens) =>

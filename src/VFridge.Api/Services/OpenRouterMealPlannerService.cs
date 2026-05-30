@@ -13,16 +13,28 @@ public sealed class OpenRouterMealPlannerService(
     IOptions<OpenRouterOptions> options,
     ILogger<OpenRouterMealPlannerService> logger) : IMealPlannerService
 {
+    // Light plan: names + ingredients only, NO description/steps. Keeping the response small
+    // is what lets the whole 5-meal plan fit inside the free-tier token budget; the per-meal
+    // recipe (description + steps) is fetched lazily via GenerateRecipeAsync when the user
+    // opens a meal card.
     private const string SystemPrompt =
         "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 5 distinct " +
         "weekday meals (assign each to one of Monday, Tuesday, Wednesday, Thursday, Friday). For each meal " +
-        "give a one-sentence description, the list of ingredients, and short numbered cooking steps. Use " +
+        "give its name and the list of ingredients. Do NOT include cooking steps or a description. Use " +
         "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
         "needs them. " +
         "Respond with strict JSON matching this schema, no prose: " +
-        "{\"meals\":[{\"name\":string,\"day\":string,\"description\":string,\"ingredients\":[string],\"steps\":[string],\"note\":string?}]," +
+        "{\"meals\":[{\"name\":string,\"day\":string,\"ingredients\":[string],\"note\":string?}]," +
         "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
         DayAndCategoryRule;
+
+    // Recipe-only prompt for the lazy fetch: just the description + steps for one named dish.
+    private const string RecipeSystemPrompt =
+        "You are V-Fridge's chef. For the single named dish, give a one-sentence description and short " +
+        "numbered cooking steps. " +
+        "Respond with strict JSON matching this schema, no prose: " +
+        "{\"description\":string,\"steps\":[string]} " +
+        "If asked to write in another language, write the description and steps in that language.";
 
     private const string SingleMealSystemPrompt =
         "You are V-Fridge's meal planner. Propose exactly ONE meal for the requested weekday based on the " +
@@ -99,6 +111,41 @@ public sealed class OpenRouterMealPlannerService(
 
         // Pin the day to the requested code — the model occasionally drifts or localises it.
         return meal with { Day = day };
+    }
+
+    public async Task<MealRecipe?> GenerateRecipeAsync(
+        string mealName,
+        IReadOnlyList<string> ingredients,
+        string language,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_opts.ApiKey))
+        {
+            logger.LogWarning("OpenRouter ApiKey is not configured; cannot fetch a recipe");
+            return null;
+        }
+
+        var ingredientsText = ingredients.Count > 0
+            ? " It uses: " + string.Join(", ", ingredients) + "."
+            : string.Empty;
+        var userText = $"Dish: {mealName}.{ingredientsText}";
+
+        // No cuisine steering here — the dish is already chosen; we only need its recipe.
+        var messages = new List<ChatMessage> { new("system", RecipeSystemPrompt) };
+        var languageInstruction = AiPrompts.LanguageInstructionFor(SupportedLanguages.Normalize(language));
+        if (languageInstruction is not null) messages.Add(new ChatMessage("system", languageInstruction));
+        messages.Add(new ChatMessage("user", userText));
+
+        var root = await SendAndParseAsync(messages, "recipe", ct);
+        if (root is null) return null;
+
+        var description = root.Value.TryGetProperty("description", out var d) && d.ValueKind == JsonValueKind.String
+            ? d.GetString()
+            : null;
+        var steps = StringList(root.Value, "steps");
+        if (string.IsNullOrWhiteSpace(description) && steps.Count == 0) return null;
+
+        return new MealRecipe(description, steps);
     }
 
     private static string InventoryText(IReadOnlyList<MealPlanInventoryItem> inventory) =>
