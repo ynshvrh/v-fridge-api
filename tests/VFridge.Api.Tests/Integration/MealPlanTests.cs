@@ -116,6 +116,61 @@ public class MealPlanTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task RegenerateDay_ReplacesOnlyThatDay_AndKeepsGaps()
+    {
+        await _client.PostAsync("/meal-plan", null); // Monday: Tomato pasta, Tuesday: Cheese omelette
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Monday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        var meals = body.GetProperty("meals").EnumerateArray().ToList();
+
+        var monday = meals.Single(m => m.GetProperty("day").GetString() == "Monday");
+        monday.GetProperty("name").GetString().Should().Be("Borscht", "the Monday meal was regenerated");
+        monday.GetProperty("steps").GetArrayLength().Should().BeGreaterThan(0, "the new meal carries cooking steps");
+
+        var tuesday = meals.Single(m => m.GetProperty("day").GetString() == "Tuesday");
+        tuesday.GetProperty("name").GetString().Should().Be("Cheese omelette", "other days are untouched");
+
+        body.GetProperty("gapItems").GetArrayLength().Should().Be(2, "the gap list is left untouched on a single-day regen");
+    }
+
+    [Fact]
+    public async Task RegenerateDay_NotFound_WhenNoPlanGeneratedYet()
+    {
+        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Monday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("MEAL_PLAN_NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task RegenerateDay_PassesDayPrefsAndAvoidNames_ToPlanner()
+    {
+        await _client.PatchAsync("/auth/me/preferences",
+            JsonContent.Create(new { cuisinePreference = "ukrainian", preferredLanguage = "uk" }));
+        await _client.PostAsync("/meal-plan", null);
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Tuesday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        _factory.Planner.LastRegeneratedDay.Should().Be("Tuesday");
+        _factory.Planner.LastCuisinePreference.Should().Be("ukrainian");
+        _factory.Planner.LastLanguage.Should().Be("uk");
+        _factory.Planner.LastAvoidMealNames.Should().Contain(new[] { "Tomato pasta", "Cheese omelette" });
+    }
+
+    [Fact]
+    public async Task RegenerateDay_ValidationError_ForUnsupportedDay()
+    {
+        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Sunday" });
+        resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("errors").GetProperty("day")[0].GetString().Should().Contain("Monday");
+    }
+
+    [Fact]
     public async Task ImportGaps_AddsItems_AndDedupesByName()
     {
         // Pre-seed an existing shopping item.

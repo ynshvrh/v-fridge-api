@@ -40,6 +40,18 @@ public static class MealPlanEndpoints
             .Produces(StatusCodes.Status429TooManyRequests)
             .Produces(StatusCodes.Status502BadGateway);
 
+        group.MapPost("/regenerate-day", RegenerateDayAsync)
+            .RequireRateLimiting("chat")
+            .WithName("RegenerateMealPlanDay")
+            .WithSummary("Regenerate a single weekday's meal")
+            .WithDescription("Replaces one weekday's meal in the active fridge's cached plan with a fresh LLM suggestion, keeping the other days and the gap list untouched. Reuses the chat rate-limit bucket. 404 MEAL_PLAN_NOT_FOUND when no plan has been generated yet.")
+            .Produces<MealPlanResponse>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .Produces(StatusCodes.Status502BadGateway)
+            .ProducesValidationProblem();
+
         group.MapPost("/import-gaps", ImportGapsAsync)
             .WithName("ImportMealPlanGaps")
             .WithSummary("Bulk-append the gap items to the shopping list")
@@ -134,6 +146,86 @@ public static class MealPlanEndpoints
         await db.SaveChangesAsync(ct);
 
         return Results.Ok(plan with { GeneratedAt = now });
+    }
+
+    public sealed record RegenerateDayRequest(string Day);
+
+    // The five weekdays the planner assigns meals to. Case-insensitive match; the canonical
+    // English code is what gets stored and pinned on the regenerated meal.
+    private static readonly Dictionary<string, string> Weekdays = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["monday"] = "Monday",
+        ["tuesday"] = "Tuesday",
+        ["wednesday"] = "Wednesday",
+        ["thursday"] = "Thursday",
+        ["friday"] = "Friday",
+    };
+
+    private static async Task<IResult> RegenerateDayAsync(
+        RegenerateDayRequest req,
+        VFridgeDbContext db,
+        ICurrentUser me,
+        FridgeContext fridgeContext,
+        IMealPlannerService planner,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+
+        if (req.Day is null || !Weekdays.TryGetValue(req.Day.Trim(), out var day))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+            });
+        }
+
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
+        var fridgeId = resolved.Value.FridgeId;
+
+        var row = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        if (row is null)
+            return Results.NotFound(new { code = "MEAL_PLAN_NOT_FOUND", error = "No meal plan to regenerate. Generate one first." });
+
+        var meals = JsonSerializer.Deserialize<List<MealPlanMeal>>(row.MealsJson, CacheJson)
+                    ?? new List<MealPlanMeal>();
+        var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
+                   ?? new List<MealPlanGapItem>();
+
+        var inventory = await db.Products
+            .Where(p => p.FridgeId == fridgeId)
+            .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
+            .ToListAsync(ct);
+
+        var prefs = await db.Users
+            .Where(u => u.Id == uid)
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
+            .FirstOrDefaultAsync(ct);
+        var cuisinePreference = SupportedCuisines.Normalize(prefs?.CuisinePreference);
+        var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+
+        // Avoid repeating any dish already in the plan (including the one being replaced).
+        var avoid = meals.Select(m => m.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+
+        var newMeal = await planner.RegenerateDayAsync(inventory, cuisinePreference, language, day, avoid, ct);
+        if (newMeal is null)
+        {
+            return Results.Problem(
+                title: "The meal planner is temporarily unavailable.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        // Replace the meal(s) for that day; keep everyone else. Per the product decision the gap
+        // list is left untouched on a single-day regenerate.
+        meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
+        meals.Add(newMeal);
+
+        var now = DateTime.UtcNow;
+        row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
+        row.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new MealPlanResponse(meals, gaps, now));
     }
 
     public sealed record ImportGapsRequest(IReadOnlyList<MealPlanGapItem> Items);
