@@ -52,6 +52,18 @@ public static class MealPlanEndpoints
             .Produces(StatusCodes.Status502BadGateway)
             .ProducesValidationProblem();
 
+        group.MapPost("/recipe", GetRecipeAsync)
+            .RequireRateLimiting("chat")
+            .WithName("GetMealRecipe")
+            .WithSummary("Lazily fetch a single meal's recipe")
+            .WithDescription("Returns the cached plan with the requested day's meal filled in with a description and cooking steps, fetching them from the LLM the first time and caching the result. Keeps each LLM call small enough for the free-tier token budget. 404 MEAL_PLAN_NOT_FOUND when no plan exists; 404 MEAL_NOT_FOUND when that day has no meal.")
+            .Produces<MealPlanResponse>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .Produces(StatusCodes.Status502BadGateway)
+            .ProducesValidationProblem();
+
         group.MapPost("/import-gaps", ImportGapsAsync)
             .WithName("ImportMealPlanGaps")
             .WithSummary("Bulk-append the gap items to the shopping list")
@@ -219,6 +231,71 @@ public static class MealPlanEndpoints
         // list is left untouched on a single-day regenerate.
         meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
         meals.Add(newMeal);
+
+        var now = DateTime.UtcNow;
+        row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
+        row.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+
+        return Results.Ok(new MealPlanResponse(meals, gaps, now));
+    }
+
+    public sealed record GetRecipeRequest(string Day);
+
+    private static async Task<IResult> GetRecipeAsync(
+        GetRecipeRequest req,
+        VFridgeDbContext db,
+        ICurrentUser me,
+        FridgeContext fridgeContext,
+        IMealPlannerService planner,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+
+        if (req.Day is null || !Weekdays.TryGetValue(req.Day.Trim(), out var day))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+            });
+        }
+
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
+        var fridgeId = resolved.Value.FridgeId;
+
+        var row = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        if (row is null)
+            return Results.NotFound(new { code = "MEAL_PLAN_NOT_FOUND", error = "No meal plan yet. Generate one first." });
+
+        var meals = JsonSerializer.Deserialize<List<MealPlanMeal>>(row.MealsJson, CacheJson)
+                    ?? new List<MealPlanMeal>();
+        var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
+                   ?? new List<MealPlanGapItem>();
+
+        var index = meals.FindIndex(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
+        if (index < 0)
+            return Results.NotFound(new { code = "MEAL_NOT_FOUND", error = "No meal for that day in the current plan." });
+
+        var meal = meals[index];
+
+        // Already have a recipe (filled earlier or carried by a regenerated meal) — return as-is,
+        // no LLM call, no token spend.
+        if (meal.Steps is { Count: > 0 })
+            return Results.Ok(new MealPlanResponse(meals, gaps, row.UpdatedAt));
+
+        var language = SupportedLanguages.Normalize(
+            await db.Users.Where(u => u.Id == uid).Select(u => u.PreferredLanguage).FirstOrDefaultAsync(ct));
+
+        var recipe = await planner.GenerateRecipeAsync(meal.Name, meal.Ingredients, language, ct);
+        if (recipe is null)
+        {
+            return Results.Problem(
+                title: "The meal planner is temporarily unavailable.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        meals[index] = meal with { Description = recipe.Description, Steps = recipe.Steps };
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);

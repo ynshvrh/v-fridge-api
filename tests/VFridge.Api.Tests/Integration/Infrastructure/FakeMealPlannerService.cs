@@ -5,6 +5,7 @@ namespace VFridge.Api.Tests.Integration.Infrastructure;
 
 public sealed class FakeMealPlannerService : IMealPlannerService
 {
+    // Light plan: no Description/Steps, mirroring the real service. Recipes are filled in lazily.
     public MealPlanResponse? Response { get; set; } = new(
         new List<MealPlanMeal>
         {
@@ -31,6 +32,15 @@ public sealed class FakeMealPlannerService : IMealPlannerService
     public string? LastRegeneratedDay { get; private set; }
 
     public IReadOnlyList<string>? LastAvoidMealNames { get; private set; }
+
+    public MealRecipe? Recipe { get; set; } = new(
+        "A quick comforting dish", new[] { "Prep the ingredients", "Cook for 15 minutes", "Serve hot" });
+
+    public int RecipeCallCount { get; private set; }
+
+    public string? LastRecipeMealName { get; private set; }
+
+    public string? LastRecipeLanguage { get; private set; }
 
     public Task<MealPlanResponse?> GenerateAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
@@ -60,5 +70,17 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         // Mirror the real service: the returned meal's Day is pinned to the requested day.
         var meal = RegeneratedMeal;
         return Task.FromResult(meal is null ? null : meal with { Day = day });
+    }
+
+    public Task<MealRecipe?> GenerateRecipeAsync(
+        string mealName,
+        IReadOnlyList<string> ingredients,
+        string language,
+        CancellationToken ct)
+    {
+        RecipeCallCount++;
+        LastRecipeMealName = mealName;
+        LastRecipeLanguage = language;
+        return Task.FromResult(Recipe);
     }
 }
