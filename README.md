@@ -53,7 +53,8 @@ All settings live under sections in `appsettings.json` and can be overridden via
 | `Email:SmtpHost` / `Username` / `Password` | MailKit SMTP (e.g. Gmail app password)         |
 | `Google:ClientId` / `ClientSecret`         | Google OAuth credentials                       |
 | `OpenRouter:ApiKey`                        | OpenRouter API key (https://openrouter.ai)     |
-| `OpenRouter:Model`                         | Default model id (e.g. `google/gemini-2.5-flash`) |
+| `OpenRouter:Model`                         | Single model id; used when `Models` is empty (e.g. `google/gemini-2.5-flash`) |
+| `OpenRouter:Models`                        | Ordered model pool tried best-first; falls through on 429/402/5xx/empty (and invalid JSON for the planner) so a free-tier key stays up across several models' separate daily limits |
 | `OpenRouter:MaxTokens`                     | Per-call generation cap (default 2048; OpenRouter reserves credits against it) |
 | `Frontend:BaseUrl`                         | Used in email verification links + CORS origin |
 | `Cors:AllowedOrigins`                      | Array of allowed front-end origins             |

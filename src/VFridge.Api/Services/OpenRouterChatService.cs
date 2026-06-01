@@ -58,25 +58,60 @@ public sealed class OpenRouterChatService(
 
         messages.Add(new ChatMessage("user", userPrompt));
 
+        // Try each model in the pool until one returns text. A rate-limited (429),
+        // out-of-credit (402), erroring or empty model falls through to the next so
+        // a free-tier account stays up across several models' independent limits.
+        var models = _opts.ResolvedModels();
+        for (var i = 0; i < models.Count; i++)
+        {
+            var model = models[i];
+            var reply = await TrySendAsync(model, messages, ct);
+            if (!string.IsNullOrWhiteSpace(reply))
+            {
+                if (i > 0) logger.LogInformation("OpenRouter chat served by fallback model {Model} (#{Index})", model, i);
+                return reply;
+            }
+            logger.LogWarning("OpenRouter chat model {Model} unavailable, trying next", model);
+        }
+
+        logger.LogError("OpenRouter chat: all {Count} models failed", models.Count);
+        return null;
+    }
+
+    /// <summary>One attempt against a single model. Returns the reply text, or null on any failure.</summary>
+    private async Task<string?> TrySendAsync(string model, List<ChatMessage> messages, CancellationToken ct)
+    {
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_opts.BaseUrl.TrimEnd('/')}/chat/completions")
         {
-            Content = JsonContent.Create(new ChatCompletionRequest(_opts.Model, messages, _opts.MaxTokens))
+            Content = JsonContent.Create(new ChatCompletionRequest(model, messages, _opts.MaxTokens))
         };
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _opts.ApiKey);
         if (!string.IsNullOrWhiteSpace(_opts.Referer)) request.Headers.TryAddWithoutValidation("HTTP-Referer", _opts.Referer);
         if (!string.IsNullOrWhiteSpace(_opts.Title)) request.Headers.TryAddWithoutValidation("X-Title", _opts.Title);
 
-        using var response = await http.SendAsync(request, ct);
-
-        if (!response.IsSuccessStatusCode)
+        HttpResponseMessage response;
+        try
         {
-            var body = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("OpenRouter call failed: {Status} — {Body}", (int)response.StatusCode, body);
+            response = await http.SendAsync(request, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "OpenRouter chat transport error on model {Model}", model);
             return null;
         }
 
-        var payload = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(cancellationToken: ct);
-        return payload?.Choices?.FirstOrDefault()?.Message?.Content;
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("OpenRouter chat {Model} failed: {Status} — {Body}", model, (int)response.StatusCode, body);
+                return null;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(cancellationToken: ct);
+            return payload?.Choices?.FirstOrDefault()?.Message?.Content;
+        }
     }
 
     private sealed record ChatMessage([property: JsonPropertyName("role")] string Role,

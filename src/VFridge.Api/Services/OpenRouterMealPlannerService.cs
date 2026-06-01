@@ -168,10 +168,36 @@ public sealed class OpenRouterMealPlannerService(
         return messages;
     }
 
-    /// <summary>Sends the chat request, returns the parsed JSON root, or null on any transport/parse failure.</summary>
+    /// <summary>
+    /// Sends the request through the model pool, returning the first valid parsed JSON root.
+    /// A model that is rate-limited (429), out of credit (402), errors, returns nothing, or
+    /// returns invalid JSON falls through to the next — invalid JSON matters here because a
+    /// weaker model botching the strict schema is exactly the failure we want to route around.
+    /// Returns null only when every model fails.
+    /// </summary>
     private async Task<JsonElement?> SendAndParseAsync(List<ChatMessage> messages, string label, CancellationToken ct)
     {
-        var body = new ChatCompletionRequest(_opts.Model, messages, new ResponseFormat("json_object"), _opts.MaxTokens);
+        var models = _opts.ResolvedModels();
+        for (var i = 0; i < models.Count; i++)
+        {
+            var model = models[i];
+            var root = await TrySendAndParseAsync(model, messages, label, ct);
+            if (root is not null)
+            {
+                if (i > 0) logger.LogInformation("OpenRouter {Label} served by fallback model {Model} (#{Index})", label, model, i);
+                return root;
+            }
+            logger.LogWarning("OpenRouter {Label} model {Model} unavailable or invalid, trying next", label, model);
+        }
+
+        logger.LogError("OpenRouter {Label}: all {Count} models failed", label, models.Count);
+        return null;
+    }
+
+    /// <summary>One attempt against a single model. Returns the parsed JSON root, or null on any transport/parse failure.</summary>
+    private async Task<JsonElement?> TrySendAndParseAsync(string model, List<ChatMessage> messages, string label, CancellationToken ct)
+    {
+        var body = new ChatCompletionRequest(model, messages, new ResponseFormat("json_object"), _opts.MaxTokens);
 
         using var request = new HttpRequestMessage(HttpMethod.Post, $"{_opts.BaseUrl.TrimEnd('/')}/chat/completions")
         {
@@ -181,28 +207,41 @@ public sealed class OpenRouterMealPlannerService(
         if (!string.IsNullOrWhiteSpace(_opts.Referer)) request.Headers.TryAddWithoutValidation("HTTP-Referer", _opts.Referer);
         if (!string.IsNullOrWhiteSpace(_opts.Title)) request.Headers.TryAddWithoutValidation("X-Title", _opts.Title);
 
-        using var response = await http.SendAsync(request, ct);
-        if (!response.IsSuccessStatusCode)
-        {
-            var raw = await response.Content.ReadAsStringAsync(ct);
-            logger.LogError("OpenRouter {Label} call failed: {Status} — {Body}", label, (int)response.StatusCode, raw);
-            return null;
-        }
-
-        var payload = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(cancellationToken: ct);
-        var content = payload?.Choices?.FirstOrDefault()?.Message?.Content;
-        if (string.IsNullOrWhiteSpace(content)) return null;
-
+        HttpResponseMessage response;
         try
         {
-            // Clone so the JsonElement stays valid after the JsonDocument is disposed.
-            using var doc = JsonDocument.Parse(content);
-            return doc.RootElement.Clone();
+            response = await http.SendAsync(request, ct);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "OpenRouter {Label} response was not valid JSON: {Content}", label, content);
+            logger.LogWarning(ex, "OpenRouter {Label} transport error on model {Model}", label, model);
             return null;
+        }
+
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var raw = await response.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("OpenRouter {Label} {Model} failed: {Status} — {Body}", label, model, (int)response.StatusCode, raw);
+                return null;
+            }
+
+            var payload = await response.Content.ReadFromJsonAsync<ChatCompletionResponse>(cancellationToken: ct);
+            var content = payload?.Choices?.FirstOrDefault()?.Message?.Content;
+            if (string.IsNullOrWhiteSpace(content)) return null;
+
+            try
+            {
+                // Clone so the JsonElement stays valid after the JsonDocument is disposed.
+                using var doc = JsonDocument.Parse(content);
+                return doc.RootElement.Clone();
+            }
+            catch (JsonException ex)
+            {
+                logger.LogWarning(ex, "OpenRouter {Label} {Model} returned invalid JSON: {Content}", label, model, content);
+                return null;
+            }
         }
     }
 

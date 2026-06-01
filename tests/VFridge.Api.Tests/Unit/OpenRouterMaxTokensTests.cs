@@ -95,6 +95,77 @@ public class OpenRouterMaxTokensTests
     }
 
     [Fact]
+    public async Task Chat_FailsOverToNextModel_WhenFirstIsRateLimited()
+    {
+        // First model 429s, second returns text. The pool should fall through and succeed.
+        var handler = new SequenceHandler(
+            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") },
+            CannedChatResponse("борщ"));
+        var options = Options.Create(new OpenRouterOptions
+        {
+            ApiKey = "k",
+            Models = ["model-a:free", "model-b:free"],
+            MaxTokens = 2048,
+        });
+        var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
+
+        var reply = await service.GenerateReplyAsync(
+            Array.Empty<(string, string)>(), "fridge", "що приготувати?", "any", "uk", CancellationToken.None);
+
+        reply.Should().Be("борщ");
+        handler.Requests.Should().HaveCount(2);
+        ModelOf(handler.Requests[0]).Should().Be("model-a:free");
+        ModelOf(handler.Requests[1]).Should().Be("model-b:free");
+    }
+
+    [Fact]
+    public async Task Chat_ReturnsNull_WhenAllModelsFail()
+    {
+        var handler = new SequenceHandler(
+            new HttpResponseMessage(HttpStatusCode.PaymentRequired) { Content = new StringContent("no credit") },
+            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") });
+        var options = Options.Create(new OpenRouterOptions { ApiKey = "k", Models = ["a:free", "b:free"], MaxTokens = 2048 });
+        var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
+
+        var reply = await service.GenerateReplyAsync(
+            Array.Empty<(string, string)>(), "fridge", "hi", "any", "en", CancellationToken.None);
+
+        reply.Should().BeNull();
+        handler.Requests.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task MealPlanner_FailsOverToNextModel_WhenFirstReturnsInvalidJson()
+    {
+        // A weak model botching the strict JSON schema is exactly what failover must route around.
+        var handler = new SequenceHandler(
+            CannedChatResponse("not json at all"),
+            CannedMealPlanResponse());
+        var options = Options.Create(new OpenRouterOptions { ApiKey = "k", Models = ["weak:free", "good:free"], MaxTokens = 2048 });
+        var service = new OpenRouterMealPlannerService(new HttpClient(handler), options, NullLogger<OpenRouterMealPlannerService>.Instance);
+
+        var plan = await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
+
+        plan.Should().NotBeNull();
+        handler.Requests.Should().HaveCount(2);
+        ModelOf(handler.Requests[1]).Should().Be("good:free");
+    }
+
+    [Fact]
+    public void ResolvedModels_PrefersListThenFallsBackToSingle()
+    {
+        new OpenRouterOptions { Model = "solo", Models = [] }.ResolvedModels().Should().Equal("solo");
+        new OpenRouterOptions { Model = "solo", Models = ["a", "b"] }.ResolvedModels().Should().Equal("a", "b");
+        new OpenRouterOptions { Model = "solo", Models = ["", "  "] }.ResolvedModels().Should().Equal("solo");
+    }
+
+    private static string? ModelOf(string requestBody)
+    {
+        using var doc = JsonDocument.Parse(requestBody);
+        return doc.RootElement.GetProperty("model").GetString();
+    }
+
+    [Fact]
     public void Default_MaxTokens_Is_Sane()
     {
         // Anchors the chosen ceiling — small enough to survive on free OpenRouter credit,
@@ -113,8 +184,8 @@ public class OpenRouterMaxTokensTests
     private static HttpResponseMessage CannedMealPlanResponse() =>
         BuildResponse("{\"meals\":[],\"gapItems\":[]}");
 
-    private static HttpResponseMessage CannedChatResponse() =>
-        BuildResponse("hello");
+    private static HttpResponseMessage CannedChatResponse(string content = "hello") =>
+        BuildResponse(content);
 
     private static HttpResponseMessage BuildResponse(string assistantContent)
     {
@@ -143,6 +214,21 @@ public class OpenRouterMaxTokensTests
                 ? null
                 : await request.Content.ReadAsStringAsync(cancellationToken);
             return response;
+        }
+    }
+
+    /// <summary>Returns queued responses in order, one per call, capturing each request body.</summary>
+    private sealed class SequenceHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+    {
+        private int _i;
+        public List<string> Requests { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Requests.Add(request.Content is null ? "" : await request.Content.ReadAsStringAsync(cancellationToken));
+            return responses[_i++];
         }
     }
 }
