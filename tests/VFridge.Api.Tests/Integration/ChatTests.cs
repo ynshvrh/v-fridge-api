@@ -108,14 +108,20 @@ public class ChatTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task PostMessage_FallsBackToCannedReply_WhenAiReturnsNull()
+    public async Task PostMessage_Returns502Coded_WhenAllModelsFail()
     {
+        // Null reply = every model in the pool failed. The endpoint must surface a coded 502
+        // (so the client shows a localized "try again") and must NOT persist a fake reply.
         _factory.Ai.Reply = null!;
 
         var resp = await _client.PostAsJsonAsync("/chat", new { content = "anything" });
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        resp.StatusCode.Should().Be(HttpStatusCode.BadGateway);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("content").GetString().Should().Contain("couldn't compose");
+        body.GetProperty("code").GetString().Should().Be("AI_UNAVAILABLE");
+
+        // History stays clean — no user turn, no fake assistant turn persisted.
+        var history = await _client.GetFromJsonAsync<JsonElement>("/chat");
+        history.GetArrayLength().Should().Be(0);
     }
 
     [Fact]

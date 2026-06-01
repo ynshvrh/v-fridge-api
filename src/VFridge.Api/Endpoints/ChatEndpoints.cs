@@ -124,8 +124,18 @@ public static class ChatEndpoints
         catch (Exception ex)
         {
             logger.LogError(ex, "AI call failed");
-            return Results.Problem(
-                title: "An internal service error occurred.",
+            return Results.Json(
+                new ApiError("AI_UNAVAILABLE", "The AI chef is temporarily unavailable. Please try again shortly."),
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        // Every model in the pool failed (rate-limited / out of credit / errored). Surface a
+        // coded 502 so the client shows a localized "try again" instead of us persisting a
+        // fake English assistant reply into the conversation history.
+        if (string.IsNullOrWhiteSpace(aiText))
+        {
+            return Results.Json(
+                new ApiError("AI_UNAVAILABLE", "The AI chef is temporarily unavailable. Please try again shortly."),
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
@@ -139,7 +149,7 @@ public static class ChatEndpoints
         {
             UserId = uid,
             Role = "assistant",
-            Content = string.IsNullOrWhiteSpace(aiText) ? "Sorry, I couldn't compose a reply." : aiText
+            Content = aiText
         };
         db.Chats.Add(assistantMsg);
 
