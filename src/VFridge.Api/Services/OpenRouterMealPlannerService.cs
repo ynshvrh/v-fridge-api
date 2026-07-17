@@ -45,6 +45,14 @@ public sealed class OpenRouterMealPlannerService(
         "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]} " +
         DayAndCategoryRule;
 
+    private const string RegenerateMealSystemPrompt =
+        "You are V-Fridge's meal planner. Propose exactly 1 meal for the requested weekday and meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner') based on the " +
+        "user's current inventory. Give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. " +
+        "Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe. " +
+        "Respond with strict JSON matching this schema, no prose: " +
+        "{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?} " +
+        DayAndCategoryRule;
+
     // Shared trailing rule: machine codes stay English no matter the requested language.
     private const string DayAndCategoryRule =
         "The \"day\" value must always be one of the English weekday names Monday, Tuesday, Wednesday, " +
@@ -117,6 +125,39 @@ public sealed class OpenRouterMealPlannerService(
 
         // Pin the day to the requested code — the model occasionally drifts or localises it.
         return meals.Select(m => m with { Day = day }).ToList();
+    }
+
+    public async Task<MealPlanMeal?> RegenerateMealAsync(
+        IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
+        string day,
+        string mealType,
+        IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(_opts.ApiKey))
+        {
+            logger.LogWarning("OpenRouter ApiKey is not configured; cannot regenerate single meal");
+            return null;
+        }
+
+        var avoid = avoidMealNames.Count > 0
+            ? " Do not repeat any of these existing dishes: " + string.Join(", ", avoidMealNames) + "."
+            : string.Empty;
+        var userText = $"Propose one {mealType} meal for {day}.{avoid}\n\n{InventoryText(inventory)}";
+
+        var messages = BuildMessages(RegenerateMealSystemPrompt, cuisinePreference, language, dietaryProfile, userText);
+
+        var root = await SendAndParseAsync(messages, "regenerate-meal", ct);
+        if (root is null) return null;
+
+        var meal = ParseMeal(root.Value);
+        if (meal is null) return null;
+
+        // Pin the day and mealType to the requested codes.
+        return meal with { Day = day, MealType = mealType };
     }
 
     public async Task<MealRecipe?> GenerateRecipeAsync(

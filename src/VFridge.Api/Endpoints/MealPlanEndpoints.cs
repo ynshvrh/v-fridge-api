@@ -52,6 +52,18 @@ public static class MealPlanEndpoints
             .Produces(StatusCodes.Status502BadGateway)
             .ProducesValidationProblem();
 
+        group.MapPost("/regenerate-meal", RegenerateMealAsync)
+            .RequireRateLimiting("chat")
+            .WithName("RegenerateMealPlanMeal")
+            .WithSummary("Regenerate a single specific meal of the plan")
+            .WithDescription("Replaces a single meal (by day and type) in the active fridge's cached plan with a fresh LLM suggestion. Reuses the chat rate-limit bucket. 404 MEAL_PLAN_NOT_FOUND when no plan exists.")
+            .Produces<MealPlanResponse>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status404NotFound)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .Produces(StatusCodes.Status502BadGateway)
+            .ProducesValidationProblem();
+
         group.MapPost("/recipe", GetRecipeAsync)
             .RequireRateLimiting("chat")
             .WithName("GetMealRecipe")
@@ -164,6 +176,7 @@ public static class MealPlanEndpoints
     }
 
     public sealed record RegenerateDayRequest(string Day);
+    public sealed record RegenerateMealRequest(string Day, string MealType);
 
     // The five weekdays the planner assigns meals to. Case-insensitive match; the canonical
     // English code is what gets stored and pinned on the regenerated meal.
@@ -235,6 +248,88 @@ public static class MealPlanEndpoints
         // list is left untouched on a single-day regenerate.
         meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
         meals.AddRange(newMeals);
+
+        var now = DateTime.UtcNow;
+        row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
+        row.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
+        return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
+    }
+
+    private static async Task<IResult> RegenerateMealAsync(
+        RegenerateMealRequest req,
+        VFridgeDbContext db,
+        ICurrentUser me,
+        FridgeContext fridgeContext,
+        IMealPlannerService planner,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+
+        if (req.Day is null || !Weekdays.TryGetValue(req.Day.Trim(), out var day))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+            });
+        }
+
+        if (string.IsNullOrWhiteSpace(req.MealType) ||
+            (!string.Equals(req.MealType, "breakfast", StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(req.MealType, "lunch", StringComparison.OrdinalIgnoreCase) &&
+             !string.Equals(req.MealType, "dinner", StringComparison.OrdinalIgnoreCase)))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["mealType"] = ["MealType must be one of breakfast, lunch, dinner"]
+            });
+        }
+
+        var normalizedMealType = req.MealType.Trim().ToLowerInvariant();
+
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
+        var fridgeId = resolved.Value.FridgeId;
+
+        var row = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        if (row is null)
+            return Results.NotFound(new { code = "MEAL_PLAN_NOT_FOUND", error = "No meal plan to regenerate. Generate one first." });
+
+        var meals = JsonSerializer.Deserialize<List<MealPlanMeal>>(row.MealsJson, CacheJson)
+                    ?? new List<MealPlanMeal>();
+        var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
+                   ?? new List<MealPlanGapItem>();
+
+        var inventory = await db.Products
+            .Where(p => p.FridgeId == fridgeId)
+            .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
+            .ToListAsync(ct);
+
+        var prefs = await db.Users
+            .Where(u => u.Id == uid)
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage, u.DietaryProfile })
+            .FirstOrDefaultAsync(ct);
+        var cuisinePreference = SupportedCuisines.Normalize(prefs?.CuisinePreference);
+        var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+        var dietaryProfile = prefs?.DietaryProfile;
+
+        // Avoid repeating any dish already in the plan (including the one being replaced).
+        var avoid = meals.Select(m => m.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
+
+        var newMeal = await planner.RegenerateMealAsync(inventory, cuisinePreference, language, day, normalizedMealType, avoid, dietaryProfile, ct);
+        if (newMeal is null)
+        {
+            return Results.Problem(
+                title: "The meal planner is temporarily unavailable.",
+                statusCode: StatusCodes.Status502BadGateway);
+        }
+
+        // Replace ONLY the meal matching the given day and mealType
+        meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase) &&
+                             string.Equals(m.MealType, normalizedMealType, StringComparison.OrdinalIgnoreCase));
+        meals.Add(newMeal);
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);

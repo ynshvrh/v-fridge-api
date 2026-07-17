@@ -43,6 +43,21 @@ public interface IMealPlannerService
         IReadOnlyList<string> ingredients,
         string language,
         CancellationToken ct);
+
+    /// <summary>
+    /// Regenerates a single meal of the specified type for a given weekday, steered by cuisine + language
+    /// and avoiding the supplied dish names. Returns null when the provider is unavailable or returns
+    /// a malformed payload.
+    /// </summary>
+    Task<MealPlanMeal?> RegenerateMealAsync(
+        IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
+        string day,
+        string mealType,
+        IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
+        CancellationToken ct);
 }
 
 public sealed record MealPlanInventoryItem(string Name, decimal Quantity, string Unit, string Category);

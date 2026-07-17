@@ -91,4 +91,28 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         LastRecipeLanguage = language;
         return Task.FromResult(Recipe);
     }
+
+    public string? LastRegeneratedMealType { get; private set; }
+
+    public Task<MealPlanMeal?> RegenerateMealAsync(
+        IReadOnlyList<MealPlanInventoryItem> inventory,
+        string cuisinePreference,
+        string language,
+        string day,
+        string mealType,
+        IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
+        CancellationToken ct)
+    {
+        CallCount++;
+        LastCuisinePreference = cuisinePreference;
+        LastLanguage = language;
+        LastRegeneratedDay = day;
+        LastRegeneratedMealType = mealType;
+        LastAvoidMealNames = avoidMealNames;
+        LastDietaryProfile = dietaryProfile;
+
+        var meal = RegeneratedMeal;
+        return Task.FromResult(meal is null ? null : meal with { Day = day, MealType = mealType });
+    }
 }
