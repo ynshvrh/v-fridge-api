@@ -18,13 +18,13 @@ public sealed class OpenRouterMealPlannerService(
     // recipe (description + steps) is fetched lazily via GenerateRecipeAsync when the user
     // opens a meal card.
     private const string SystemPrompt =
-        "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 5 distinct " +
-        "weekday meals (assign each to one of Monday, Tuesday, Wednesday, Thursday, Friday). For each meal " +
-        "give its name and the list of ingredients. Do NOT include cooking steps or a description. Use " +
+        "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 15 weekday " +
+        "meals (3 meals per day: breakfast, lunch, and dinner, assigned to Monday, Tuesday, Wednesday, Thursday, Friday). For each meal " +
+        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
         "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
-        "needs them. " +
+        "needs them. Do not combine incompatible ingredients (e.g. do not put bananas into borscht or savory salads). If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
         "Respond with strict JSON matching this schema, no prose: " +
-        "{\"meals\":[{\"name\":string,\"day\":string,\"ingredients\":[string],\"note\":string?}]," +
+        "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]," +
         "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
         DayAndCategoryRule;
 
@@ -36,20 +36,22 @@ public sealed class OpenRouterMealPlannerService(
         "{\"description\":string,\"steps\":[string]} " +
         "If asked to write in another language, write the description and steps in that language.";
 
-    private const string SingleMealSystemPrompt =
-        "You are V-Fridge's meal planner. Propose exactly ONE meal for the requested weekday based on the " +
-        "user's current inventory. Give a one-sentence description, the list of ingredients, and short " +
-        "numbered cooking steps. " +
+    private const string RegenerateDaySystemPrompt =
+        "You are V-Fridge's meal planner. Propose exactly 3 meals (breakfast, lunch, dinner) for the requested weekday based on the " +
+        "user's current inventory. For each meal, " +
+        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. " +
+        "Do not combine incompatible ingredients (e.g. do not put bananas into borscht or savory salads). If an item cannot be logically used, do not force it into a recipe. " +
         "Respond with strict JSON matching this schema, no prose: " +
-        "{\"name\":string,\"day\":string,\"description\":string,\"ingredients\":[string],\"steps\":[string],\"note\":string?} " +
+        "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]} " +
         DayAndCategoryRule;
 
     // Shared trailing rule: machine codes stay English no matter the requested language.
     private const string DayAndCategoryRule =
         "The \"day\" value must always be one of the English weekday names Monday, Tuesday, Wednesday, " +
-        "Thursday, Friday, and \"category\" must always be one of these English codes: dairy, meat-fish, " +
+        "Thursday, Friday. The \"mealType\" value must always be one of these English codes: breakfast, lunch, dinner. " +
+        "The \"category\" must always be one of these English codes: dairy, meat-fish, " +
         "vegetables, fruits, bakery, pantry, snacks, drinks, alcohol, sauces, frozen, canned-prepared, other. " +
-        "Never translate \"day\" or \"category\" — they are machine codes. If asked to write in another " +
+        "Never translate \"day\", \"mealType\", or \"category\" — they are machine codes. If asked to write in another " +
         "language, translate only \"name\", \"description\", \"note\" and the \"ingredients\"/\"steps\" strings.";
 
     private readonly OpenRouterOptions _opts = options.Value;
@@ -82,7 +84,7 @@ public sealed class OpenRouterMealPlannerService(
         return new MealPlanResponse(meals, gapItems, DateTime.UtcNow);
     }
 
-    public async Task<MealPlanMeal?> RegenerateDayAsync(
+    public async Task<IReadOnlyList<MealPlanMeal>?> RegenerateDayAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,
@@ -92,25 +94,27 @@ public sealed class OpenRouterMealPlannerService(
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
         {
-            logger.LogWarning("OpenRouter ApiKey is not configured; cannot regenerate a meal");
+            logger.LogWarning("OpenRouter ApiKey is not configured; cannot regenerate meals");
             return null;
         }
 
         var avoid = avoidMealNames.Count > 0
             ? " Do not repeat any of these existing dishes: " + string.Join(", ", avoidMealNames) + "."
             : string.Empty;
-        var userText = $"Propose one meal for {day}.{avoid}\n\n{InventoryText(inventory)}";
+        var userText = $"Propose three meals (breakfast, lunch, dinner) for {day}.{avoid}\n\n{InventoryText(inventory)}";
 
-        var messages = BuildMessages(SingleMealSystemPrompt, cuisinePreference, language, userText);
+        var messages = BuildMessages(RegenerateDaySystemPrompt, cuisinePreference, language, userText);
 
         var root = await SendAndParseAsync(messages, "regenerate-day", ct);
         if (root is null) return null;
 
-        var meal = ParseMeal(root.Value);
-        if (meal is null) return null;
+        var meals = root.Value.TryGetProperty("meals", out var mealsEl) && mealsEl.ValueKind == JsonValueKind.Array
+            ? mealsEl.EnumerateArray().Select(ParseMeal).Where(m => m is not null).Select(m => m!).ToList()
+            : null;
+        if (meals is null || meals.Count == 0) return null;
 
         // Pin the day to the requested code — the model occasionally drifts or localises it.
-        return meal with { Day = day };
+        return meals.Select(m => m with { Day = day }).ToList();
     }
 
     public async Task<MealRecipe?> GenerateRecipeAsync(
@@ -258,8 +262,9 @@ public sealed class OpenRouterMealPlannerService(
         var ingredients = StringList(m, "ingredients");
         var steps = StringList(m, "steps");
         var note = m.TryGetProperty("note", out var nt) && nt.ValueKind == JsonValueKind.String ? nt.GetString() : null;
+        var mealType = m.TryGetProperty("mealType", out var mt) && mt.ValueKind == JsonValueKind.String ? mt.GetString() : null;
 
-        return new MealPlanMeal(name, day, ingredients, note, description, steps);
+        return new MealPlanMeal(name, day, ingredients, note, description, steps, mealType);
     }
 
     private static MealPlanGapItem? ParseGap(JsonElement g)

@@ -9,8 +9,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
     public MealPlanResponse? Response { get; set; } = new(
         new List<MealPlanMeal>
         {
-            new("Tomato pasta", "Monday", new[] { "pasta", "tomato sauce" }, "Quick weeknight"),
-            new("Cheese omelette", "Tuesday", new[] { "eggs", "cheese" }, null),
+            new("Tomato pasta", "Monday", new[] { "pasta", "tomato sauce" }, "Quick weeknight", MealType: "lunch"),
+            new("Cheese omelette", "Tuesday", new[] { "eggs", "cheese" }, null, MealType: "breakfast"),
         },
         new List<MealPlanGapItem>
         {
@@ -21,7 +21,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
 
     public MealPlanMeal? RegeneratedMeal { get; set; } = new(
         "Borscht", "Monday", new[] { "beetroot", "cabbage", "potato" }, "Sour-cream on top",
-        "Hearty Ukrainian beet soup", new[] { "Boil the broth", "Add beetroot and cabbage", "Simmer 20 min" });
+        "Hearty Ukrainian beet soup", new[] { "Boil the broth", "Add beetroot and cabbage", "Simmer 20 min" },
+        MealType: "lunch");
 
     public int CallCount { get; private set; }
 
@@ -54,7 +55,7 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         return Task.FromResult(Response);
     }
 
-    public Task<MealPlanMeal?> RegenerateDayAsync(
+    public Task<IReadOnlyList<MealPlanMeal>?> RegenerateDayAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,
@@ -69,7 +70,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         LastAvoidMealNames = avoidMealNames;
         // Mirror the real service: the returned meal's Day is pinned to the requested day.
         var meal = RegeneratedMeal;
-        return Task.FromResult(meal is null ? null : meal with { Day = day });
+        IReadOnlyList<MealPlanMeal>? list = meal is null ? null : new List<MealPlanMeal> { meal with { Day = day } };
+        return Task.FromResult(list);
     }
 
     public Task<MealRecipe?> GenerateRecipeAsync(

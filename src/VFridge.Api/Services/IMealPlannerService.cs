@@ -17,12 +17,12 @@ public interface IMealPlannerService
         CancellationToken ct);
 
     /// <summary>
-    /// Regenerates a single meal for the given weekday, steered by cuisine + language and avoiding the
-    /// supplied dish names so the new meal differs from the rest of the plan. The returned meal's
+    /// Regenerates all meals for the given weekday, steered by cuisine + language and avoiding the
+    /// supplied dish names so the new meals differ from the rest of the plan. The returned meals'
     /// <c>Day</c> is pinned to <paramref name="day"/>. Returns null when the provider is unavailable
     /// or returns a malformed payload.
     /// </summary>
-    Task<MealPlanMeal?> RegenerateDayAsync(
+    Task<IReadOnlyList<MealPlanMeal>?> RegenerateDayAsync(
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,

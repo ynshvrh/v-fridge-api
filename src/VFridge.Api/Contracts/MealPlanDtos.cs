@@ -14,7 +14,8 @@ public sealed record MealPlanMeal(
     // constructions keep compiling and old cached plans (which lack these keys)
     // deserialize cleanly to null.
     string? Description = null,
-    IReadOnlyList<string>? Steps = null);
+    IReadOnlyList<string>? Steps = null,
+    string? MealType = null);
 
 public sealed record MealPlanGapItem(
     string Name,

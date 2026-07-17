@@ -219,8 +219,8 @@ public static class MealPlanEndpoints
         // Avoid repeating any dish already in the plan (including the one being replaced).
         var avoid = meals.Select(m => m.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
 
-        var newMeal = await planner.RegenerateDayAsync(inventory, cuisinePreference, language, day, avoid, ct);
-        if (newMeal is null)
+        var newMeals = await planner.RegenerateDayAsync(inventory, cuisinePreference, language, day, avoid, ct);
+        if (newMeals is null)
         {
             return Results.Problem(
                 title: "The meal planner is temporarily unavailable.",
@@ -230,7 +230,7 @@ public static class MealPlanEndpoints
         // Replace the meal(s) for that day; keep everyone else. Per the product decision the gap
         // list is left untouched on a single-day regenerate.
         meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
-        meals.Add(newMeal);
+        meals.AddRange(newMeals);
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
@@ -240,7 +240,7 @@ public static class MealPlanEndpoints
         return Results.Ok(new MealPlanResponse(meals, gaps, now));
     }
 
-    public sealed record GetRecipeRequest(string Day);
+    public sealed record GetRecipeRequest(string Day, string MealType);
 
     private static async Task<IResult> GetRecipeAsync(
         GetRecipeRequest req,
@@ -260,6 +260,14 @@ public static class MealPlanEndpoints
             });
         }
 
+        if (string.IsNullOrWhiteSpace(req.MealType))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                ["mealType"] = ["MealType must be specified (breakfast, lunch, or dinner)"]
+            });
+        }
+
         var resolved = await fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
         var fridgeId = resolved.Value.FridgeId;
@@ -273,9 +281,12 @@ public static class MealPlanEndpoints
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
 
-        var index = meals.FindIndex(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
+        var index = meals.FindIndex(m => 
+            string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase) && 
+            string.Equals(m.MealType ?? "", req.MealType.Trim(), StringComparison.OrdinalIgnoreCase));
+            
         if (index < 0)
-            return Results.NotFound(new { code = "MEAL_NOT_FOUND", error = "No meal for that day in the current plan." });
+            return Results.NotFound(new { code = "MEAL_NOT_FOUND", error = "No meal of that type for that day in the current plan." });
 
         var meal = meals[index];
 
