@@ -30,10 +30,11 @@ public sealed class OpenRouterMealPlannerService(
 
     // Recipe-only prompt for the lazy fetch: just the description + steps for one named dish.
     private const string RecipeSystemPrompt =
-        "You are V-Fridge's chef. For the single named dish, give a one-sentence description and short " +
-        "numbered cooking steps. " +
+        "You are V-Fridge's chef. For the single named dish, give a one-sentence description, short " +
+        "numbered cooking steps, and an estimate of the nutritional values per serving (calories: integer kCal, " +
+        "protein: decimal grams, fat: decimal grams, carbs: decimal grams). " +
         "Respond with strict JSON matching this schema, no prose: " +
-        "{\"description\":string,\"steps\":[string]} " +
+        "{\"description\":string,\"steps\":[string],\"calories\":integer,\"protein\":number,\"fat\":number,\"carbs\":number} " +
         "If asked to write in another language, write the description and steps in that language.";
 
     private const string RegenerateDaySystemPrompt =
@@ -192,7 +193,20 @@ public sealed class OpenRouterMealPlannerService(
         var steps = StringList(root.Value, "steps");
         if (string.IsNullOrWhiteSpace(description) && steps.Count == 0) return null;
 
-        return new MealRecipe(description, steps);
+        var calories = root.Value.TryGetProperty("calories", out var cal) && cal.ValueKind == JsonValueKind.Number
+            ? cal.GetInt32()
+            : 0;
+        var protein = root.Value.TryGetProperty("protein", out var prot) && (prot.ValueKind == JsonValueKind.Number || prot.ValueKind == JsonValueKind.String)
+            ? (prot.ValueKind == JsonValueKind.Number ? prot.GetDecimal() : decimal.TryParse(prot.GetString(), out var pVal) ? pVal : 0m)
+            : 0m;
+        var fat = root.Value.TryGetProperty("fat", out var fVal) && (fVal.ValueKind == JsonValueKind.Number || fVal.ValueKind == JsonValueKind.String)
+            ? (fVal.ValueKind == JsonValueKind.Number ? fVal.GetDecimal() : decimal.TryParse(fVal.GetString(), out var fNum) ? fNum : 0m)
+            : 0m;
+        var carbs = root.Value.TryGetProperty("carbs", out var cb) && (cb.ValueKind == JsonValueKind.Number || cb.ValueKind == JsonValueKind.String)
+            ? (cb.ValueKind == JsonValueKind.Number ? cb.GetDecimal() : decimal.TryParse(cb.GetString(), out var cVal) ? cVal : 0m)
+            : 0m;
+
+        return new MealRecipe(description, steps, calories, protein, fat, carbs);
     }
 
     private static string InventoryText(IReadOnlyList<MealPlanInventoryItem> inventory) =>

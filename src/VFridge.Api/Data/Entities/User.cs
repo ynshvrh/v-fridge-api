@@ -24,4 +24,9 @@ public partial class User
     public virtual ICollection<Product> Products { get; set; } = new List<Product>();
 
     public string? DietaryProfile { get; set; }
+
+    public int? DailyCaloriesTarget { get; set; }
+    public decimal? DailyProteinTarget { get; set; }
+    public decimal? DailyFatTarget { get; set; }
+    public decimal? DailyCarbsTarget { get; set; }
 }

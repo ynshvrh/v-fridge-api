@@ -62,4 +62,10 @@ public interface IMealPlannerService
 
 public sealed record MealPlanInventoryItem(string Name, decimal Quantity, string Unit, string Category);
 
-public sealed record MealRecipe(string? Description, IReadOnlyList<string> Steps);
+public sealed record MealRecipe(
+    string? Description,
+    IReadOnlyList<string> Steps,
+    int Calories = 0,
+    decimal Protein = 0,
+    decimal Fat = 0,
+    decimal Carbs = 0);

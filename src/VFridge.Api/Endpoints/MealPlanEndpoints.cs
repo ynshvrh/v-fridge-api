@@ -406,7 +406,15 @@ public static class MealPlanEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        meals[index] = meal with { Description = recipe.Description, Steps = recipe.Steps };
+        meals[index] = meal with
+        {
+            Description = recipe.Description,
+            Steps = recipe.Steps,
+            Calories = recipe.Calories,
+            Protein = recipe.Protein,
+            Fat = recipe.Fat,
+            Carbs = recipe.Carbs
+        };
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);

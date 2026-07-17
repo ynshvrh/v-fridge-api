@@ -235,6 +235,7 @@ app.MapShoppingEndpoints();
 app.MapAnalyticsEndpoints();
 app.MapMealPlanEndpoints();
 app.MapFridgeEndpoints();
+app.MapNutritionEndpoints();
 
 app.Run();
 

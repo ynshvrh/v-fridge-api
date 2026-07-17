@@ -15,7 +15,11 @@ public sealed record MealPlanMeal(
     // deserialize cleanly to null.
     string? Description = null,
     IReadOnlyList<string>? Steps = null,
-    string? MealType = null);
+    string? MealType = null,
+    int Calories = 0,
+    decimal Protein = 0,
+    decimal Fat = 0,
+    decimal Carbs = 0);
 
 public sealed record MealPlanGapItem(
     string Name,
