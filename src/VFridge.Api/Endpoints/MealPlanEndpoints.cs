@@ -91,7 +91,8 @@ public static class MealPlanEndpoints
                     ?? new List<MealPlanMeal>();
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
-        return Results.Ok(new MealPlanResponse(meals, gaps, row.UpdatedAt));
+        var filteredGaps = await FilterGapItemsAsync(db, resolved.Value.FridgeId, gaps, ct);
+        return Results.Ok(new MealPlanResponse(meals, filteredGaps, row.UpdatedAt));
     }
 
     private static async Task<IResult> GenerateAsync(
@@ -157,7 +158,8 @@ public static class MealPlanEndpoints
         }
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(plan with { GeneratedAt = now });
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, plan.GapItems.ToList(), ct);
+        return Results.Ok(plan with { GapItems = filteredGaps, GeneratedAt = now });
     }
 
     public sealed record RegenerateDayRequest(string Day);
@@ -237,7 +239,8 @@ public static class MealPlanEndpoints
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new MealPlanResponse(meals, gaps, now));
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
+        return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
     }
 
     public sealed record GetRecipeRequest(string Day, string MealType);
@@ -313,7 +316,8 @@ public static class MealPlanEndpoints
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
 
-        return Results.Ok(new MealPlanResponse(meals, gaps, now));
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
+        return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
     }
 
     public sealed record ImportGapsRequest(IReadOnlyList<MealPlanGapItem> Items);
@@ -369,5 +373,21 @@ public static class MealPlanEndpoints
 
         if (created > 0) await db.SaveChangesAsync(ct);
         return Results.Ok(new ImportGapsResponse(created, skipped));
+    }
+
+    private static async Task<List<MealPlanGapItem>> FilterGapItemsAsync(
+        VFridgeDbContext db,
+        int fridgeId,
+        List<MealPlanGapItem> gaps,
+        CancellationToken ct)
+    {
+        var productNames = await db.Products
+            .Where(p => p.FridgeId == fridgeId)
+            .Select(p => p.Name.ToLower().Trim())
+            .ToListAsync(ct);
+
+        return gaps
+            .Where(g => !productNames.Contains(g.Name.ToLower().Trim()))
+            .ToList();
     }
 }

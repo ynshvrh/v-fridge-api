@@ -80,19 +80,55 @@ public static class ProductsEndpoints
 
         var category = req.Category is { } c && ProductCategories.IsValid(c) ? c : ProductCategories.Other;
 
-        var entity = new Product
-        {
-            Name = req.Name.Trim(),
-            Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
-            Quantity = req.Quantity,
-            Unit = req.Unit,
-            ExpiryDate = req.ExpiryDate,
-            Category = category,
-            OwnerId = uid,
-            FridgeId = resolved.Value.FridgeId
-        };
+        var existingProduct = await db.Products
+            .FirstOrDefaultAsync(p => 
+                p.FridgeId == resolved.Value.FridgeId && 
+                p.Name.ToLower() == req.Name.ToLower().Trim() && 
+                p.Unit.ToLower() == req.Unit.ToLower().Trim(), ct);
 
-        db.Products.Add(entity);
+        Product entity;
+        if (existingProduct is not null)
+        {
+            existingProduct.Quantity += req.Quantity;
+            if (req.ExpiryDate is { } expDate)
+            {
+                existingProduct.ExpiryDate = expDate;
+            }
+            if (!string.IsNullOrWhiteSpace(req.Description))
+            {
+                existingProduct.Description = req.Description.Trim();
+            }
+            entity = existingProduct;
+        }
+        else
+        {
+            entity = new Product
+            {
+                Name = req.Name.Trim(),
+                Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
+                Quantity = req.Quantity,
+                Unit = req.Unit.Trim(),
+                ExpiryDate = req.ExpiryDate,
+                Category = category,
+                OwnerId = uid,
+                FridgeId = resolved.Value.FridgeId
+            };
+            db.Products.Add(entity);
+        }
+
+        // Clean up matching unchecked shopping items since product is now in the fridge
+        var matchingShoppingItems = await db.ShoppingItems
+            .Where(i => 
+                i.FridgeId == resolved.Value.FridgeId && 
+                !i.Checked && 
+                i.Name.ToLower() == req.Name.ToLower().Trim())
+            .ToListAsync(ct);
+
+        if (matchingShoppingItems.Count > 0)
+        {
+            db.ShoppingItems.RemoveRange(matchingShoppingItems);
+        }
+
         await db.SaveChangesAsync(ct);
 
         var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);

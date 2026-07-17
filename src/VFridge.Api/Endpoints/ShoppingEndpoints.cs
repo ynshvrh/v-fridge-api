@@ -185,18 +185,40 @@ public static class ShoppingEndpoints
             .FirstOrDefaultAsync(i => i.Id == id && i.FridgeId == resolved.Value.FridgeId, ct);
         if (item is null) return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
 
-        var product = new Product
-        {
-            Name = item.Name,
-            Quantity = item.Quantity is { } q && q > 0 ? q : 1m,
-            Unit = string.IsNullOrWhiteSpace(item.Unit) ? "pcs" : item.Unit!,
-            Category = item.Category,
-            ExpiryDate = req.ExpiryDate,
-            OwnerId = uid,
-            FridgeId = resolved.Value.FridgeId
-        };
+        var quantityToAdd = item.Quantity is { } q && q > 0 ? q : 1m;
+        var unitToUse = string.IsNullOrWhiteSpace(item.Unit) ? "pcs" : item.Unit.Trim();
 
-        db.Products.Add(product);
+        var existingProduct = await db.Products
+            .FirstOrDefaultAsync(p => 
+                p.FridgeId == resolved.Value.FridgeId && 
+                p.Name.ToLower() == item.Name.ToLower().Trim() && 
+                p.Unit.ToLower() == unitToUse.ToLower(), ct);
+
+        Product product;
+        if (existingProduct is not null)
+        {
+            existingProduct.Quantity += quantityToAdd;
+            if (req.ExpiryDate is { } expDate)
+            {
+                existingProduct.ExpiryDate = expDate;
+            }
+            product = existingProduct;
+        }
+        else
+        {
+            product = new Product
+            {
+                Name = item.Name,
+                Quantity = quantityToAdd,
+                Unit = unitToUse,
+                Category = item.Category,
+                ExpiryDate = req.ExpiryDate,
+                OwnerId = uid,
+                FridgeId = resolved.Value.FridgeId
+            };
+            db.Products.Add(product);
+        }
+
         db.ShoppingItems.Remove(item);
         await db.SaveChangesAsync(ct);
 
