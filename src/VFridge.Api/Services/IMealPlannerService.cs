@@ -14,6 +14,7 @@ public interface IMealPlannerService
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,
+        string? dietaryProfile,
         CancellationToken ct);
 
     /// <summary>
@@ -28,6 +29,7 @@ public interface IMealPlannerService
         string language,
         string day,
         IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
         CancellationToken ct);
 
     /// <summary>

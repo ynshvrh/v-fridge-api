@@ -60,6 +60,7 @@ public sealed class OpenRouterMealPlannerService(
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,
+        string? dietaryProfile,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -68,7 +69,7 @@ public sealed class OpenRouterMealPlannerService(
             return null;
         }
 
-        var messages = BuildMessages(SystemPrompt, cuisinePreference, language, InventoryText(inventory));
+        var messages = BuildMessages(SystemPrompt, cuisinePreference, language, dietaryProfile, InventoryText(inventory));
 
         var root = await SendAndParseAsync(messages, "meal-plan", ct);
         if (root is null) return null;
@@ -90,6 +91,7 @@ public sealed class OpenRouterMealPlannerService(
         string language,
         string day,
         IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -103,7 +105,7 @@ public sealed class OpenRouterMealPlannerService(
             : string.Empty;
         var userText = $"Propose three meals (breakfast, lunch, dinner) for {day}.{avoid}\n\n{InventoryText(inventory)}";
 
-        var messages = BuildMessages(RegenerateDaySystemPrompt, cuisinePreference, language, userText);
+        var messages = BuildMessages(RegenerateDaySystemPrompt, cuisinePreference, language, dietaryProfile, userText);
 
         var root = await SendAndParseAsync(messages, "regenerate-day", ct);
         if (root is null) return null;
@@ -158,7 +160,7 @@ public sealed class OpenRouterMealPlannerService(
             : "Current inventory:\n" + string.Join("\n",
                 inventory.Select(i => $"- {i.Name} [{ProductCategories.Label(i.Category)}] ({i.Quantity} {i.Unit})"));
 
-    private static List<ChatMessage> BuildMessages(string systemPrompt, string cuisinePreference, string language, string userText)
+    private static List<ChatMessage> BuildMessages(string systemPrompt, string cuisinePreference, string language, string? dietaryProfile, string userText)
     {
         var messages = new List<ChatMessage> { new("system", systemPrompt) };
 
@@ -167,6 +169,11 @@ public sealed class OpenRouterMealPlannerService(
 
         var languageInstruction = AiPrompts.LanguageInstructionFor(SupportedLanguages.Normalize(language));
         if (languageInstruction is not null) messages.Add(new ChatMessage("system", languageInstruction));
+
+        if (!string.IsNullOrWhiteSpace(dietaryProfile))
+        {
+            messages.Add(new ChatMessage("system", $"User's dietary restrictions and preferences: {dietaryProfile}"));
+        }
 
         messages.Add(new ChatMessage("user", userText));
         return messages;

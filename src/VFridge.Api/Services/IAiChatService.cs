@@ -14,5 +14,6 @@ public interface IAiChatService
         string userPrompt,
         string cuisinePreference,
         string language,
+        string? dietaryProfile,
         CancellationToken ct);
 }

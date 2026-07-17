@@ -31,7 +31,8 @@ public sealed record UserSummary(
     string Email,
     bool EmailVerified,
     string PreferredLanguage,
-    string CuisinePreference);
+    string CuisinePreference,
+    string? DietaryProfile = null);
 
 /// <summary>
 /// Partial-update DTO for /auth/me/preferences. Both fields are optional; only the ones
@@ -39,7 +40,8 @@ public sealed record UserSummary(
 /// </summary>
 public sealed record UpdatePreferencesRequest(
     string? PreferredLanguage = null,
-    string? CuisinePreference = null);
+    string? CuisinePreference = null,
+    string? DietaryProfile = null);
 
 public sealed record TokenPair(
     string AccessToken,

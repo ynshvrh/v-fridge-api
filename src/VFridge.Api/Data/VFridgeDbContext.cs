@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Microsoft.EntityFrameworkCore;
 using VFridge.Api.Data.Entities;
@@ -111,6 +111,9 @@ public partial class VFridgeDbContext : DbContext
                 .HasMaxLength(32)
                 .HasDefaultValue("any")
                 .HasColumnName("cuisine_preference");
+            entity.Property(e => e.DietaryProfile)
+                .HasMaxLength(1000)
+                .HasColumnName("dietary_profile");
         });
 
         OnModelCreatingPartial(modelBuilder);

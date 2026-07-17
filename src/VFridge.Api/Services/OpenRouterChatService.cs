@@ -26,6 +26,7 @@ public sealed class OpenRouterChatService(
         string userPrompt,
         string cuisinePreference,
         string language,
+        string? dietaryProfile,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -39,6 +40,11 @@ public sealed class OpenRouterChatService(
             new("system", SystemPrompt),
             new("system", $"Current inventory: {fridgeInventory}")
         };
+
+        if (!string.IsNullOrWhiteSpace(dietaryProfile))
+        {
+            messages.Add(new ChatMessage("system", $"User's dietary restrictions and preferences: {dietaryProfile}"));
+        }
 
         var culture = AiPrompts.CultureContextFor(SupportedCuisines.Normalize(cuisinePreference));
         if (culture is not null) messages.Add(new ChatMessage("system", culture));

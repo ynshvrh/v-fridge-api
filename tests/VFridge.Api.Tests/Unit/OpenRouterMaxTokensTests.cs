@@ -20,7 +20,7 @@ public class OpenRouterMaxTokensTests
             options,
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
-        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
+        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
         using var doc = JsonDocument.Parse(body!);
@@ -43,6 +43,7 @@ public class OpenRouterMaxTokensTests
             "what's for dinner?",
             "any",
             "en",
+            null,
             CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
@@ -60,7 +61,7 @@ public class OpenRouterMaxTokensTests
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
         await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", CancellationToken.None);
+            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", null, CancellationToken.None);
 
         using var doc = JsonDocument.Parse(capture.LastRequestBody!);
         var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
@@ -83,7 +84,7 @@ public class OpenRouterMaxTokensTests
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
         await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
+            Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
 
         using var doc = JsonDocument.Parse(capture.LastRequestBody!);
         var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
@@ -110,7 +111,7 @@ public class OpenRouterMaxTokensTests
         var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
 
         var reply = await service.GenerateReplyAsync(
-            Array.Empty<(string, string)>(), "fridge", "що приготувати?", "any", "uk", CancellationToken.None);
+            Array.Empty<(string, string)>(), "fridge", "що приготувати?", "any", "uk", null, CancellationToken.None);
 
         reply.Should().Be("борщ");
         handler.Requests.Should().HaveCount(2);
@@ -128,7 +129,7 @@ public class OpenRouterMaxTokensTests
         var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
 
         var reply = await service.GenerateReplyAsync(
-            Array.Empty<(string, string)>(), "fridge", "hi", "any", "en", CancellationToken.None);
+            Array.Empty<(string, string)>(), "fridge", "hi", "any", "en", null, CancellationToken.None);
 
         reply.Should().BeNull();
         handler.Requests.Should().HaveCount(2);
@@ -144,7 +145,7 @@ public class OpenRouterMaxTokensTests
         var options = Options.Create(new OpenRouterOptions { ApiKey = "k", Models = ["weak:free", "good:free"], MaxTokens = 2048 });
         var service = new OpenRouterMealPlannerService(new HttpClient(handler), options, NullLogger<OpenRouterMealPlannerService>.Instance);
 
-        var plan = await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", CancellationToken.None);
+        var plan = await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
 
         plan.Should().NotBeNull();
         handler.Requests.Should().HaveCount(2);

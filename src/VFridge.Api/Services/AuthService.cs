@@ -46,7 +46,8 @@ public sealed class AuthService(
             user.Email,
             EmailVerified: false,
             user.PreferredLanguage,
-            user.CuisinePreference);
+            user.CuisinePreference,
+            user.DietaryProfile);
         await SendVerificationEmailAsync(user, ct);
         return (true, null, summary);
     }
@@ -238,7 +239,8 @@ public sealed class AuthService(
             user.Email,
             verified,
             user.PreferredLanguage,
-            user.CuisinePreference);
+            user.CuisinePreference,
+            user.DietaryProfile);
     }
 
     public const string PreferencesErrorUnsupportedLanguage = "UNSUPPORTED_LANGUAGE";
@@ -263,6 +265,9 @@ public sealed class AuthService(
             user.PreferredLanguage = SupportedLanguages.Normalize(req.PreferredLanguage);
         if (req.CuisinePreference is not null)
             user.CuisinePreference = SupportedCuisines.Normalize(req.CuisinePreference);
+        if (req.DietaryProfile is not null)
+            user.DietaryProfile = req.DietaryProfile.Length > 1000 ? req.DietaryProfile[..1000].Trim() : req.DietaryProfile.Trim();
+
         await db.SaveChangesAsync(ct);
 
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
@@ -272,7 +277,8 @@ public sealed class AuthService(
             user.Email,
             verified,
             user.PreferredLanguage,
-            user.CuisinePreference));
+            user.CuisinePreference,
+            user.DietaryProfile));
     }
 
     private async Task<TokenPair> IssueTokenPairAsync(User user, CancellationToken ct)
@@ -303,7 +309,8 @@ public sealed class AuthService(
                 user.Email,
                 verified,
                 user.PreferredLanguage,
-                user.CuisinePreference));
+                user.CuisinePreference,
+                user.DietaryProfile));
     }
 
     private async Task SendVerificationEmailAsync(User user, CancellationToken ct)

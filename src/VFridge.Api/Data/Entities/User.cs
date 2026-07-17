@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace VFridge.Api.Data.Entities;
@@ -22,4 +22,6 @@ public partial class User
     public virtual ICollection<Chat> Chats { get; set; } = new List<Chat>();
 
     public virtual ICollection<Product> Products { get; set; } = new List<Product>();
+
+    public string? DietaryProfile { get; set; }
 }

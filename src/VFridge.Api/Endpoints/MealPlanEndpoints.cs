@@ -118,12 +118,13 @@ public static class MealPlanEndpoints
         // is written in the user's language. Read from the user record, not Accept-Language.
         var prefs = await db.Users
             .Where(u => u.Id == uid)
-            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage, u.DietaryProfile })
             .FirstOrDefaultAsync(ct);
         var cuisinePreference = SupportedCuisines.Normalize(prefs?.CuisinePreference);
         var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+        var dietaryProfile = prefs?.DietaryProfile;
 
-        var plan = await planner.GenerateAsync(inventory, cuisinePreference, language, ct);
+        var plan = await planner.GenerateAsync(inventory, cuisinePreference, language, dietaryProfile, ct);
         if (plan is null)
         {
             return Results.Problem(
@@ -213,15 +214,16 @@ public static class MealPlanEndpoints
 
         var prefs = await db.Users
             .Where(u => u.Id == uid)
-            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage, u.DietaryProfile })
             .FirstOrDefaultAsync(ct);
         var cuisinePreference = SupportedCuisines.Normalize(prefs?.CuisinePreference);
         var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+        var dietaryProfile = prefs?.DietaryProfile;
 
         // Avoid repeating any dish already in the plan (including the one being replaced).
         var avoid = meals.Select(m => m.Name).Where(n => !string.IsNullOrWhiteSpace(n)).ToList();
 
-        var newMeals = await planner.RegenerateDayAsync(inventory, cuisinePreference, language, day, avoid, ct);
+        var newMeals = await planner.RegenerateDayAsync(inventory, cuisinePreference, language, day, avoid, dietaryProfile, ct);
         if (newMeals is null)
         {
             return Results.Problem(

@@ -34,6 +34,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
 
     public IReadOnlyList<string>? LastAvoidMealNames { get; private set; }
 
+    public string? LastDietaryProfile { get; private set; }
+
     public MealRecipe? Recipe { get; set; } = new(
         "A quick comforting dish", new[] { "Prep the ingredients", "Cook for 15 minutes", "Serve hot" });
 
@@ -47,11 +49,13 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         IReadOnlyList<MealPlanInventoryItem> inventory,
         string cuisinePreference,
         string language,
+        string? dietaryProfile,
         CancellationToken ct)
     {
         CallCount++;
         LastCuisinePreference = cuisinePreference;
         LastLanguage = language;
+        LastDietaryProfile = dietaryProfile;
         return Task.FromResult(Response);
     }
 
@@ -61,6 +65,7 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         string language,
         string day,
         IReadOnlyList<string> avoidMealNames,
+        string? dietaryProfile,
         CancellationToken ct)
     {
         CallCount++;
@@ -68,6 +73,7 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         LastLanguage = language;
         LastRegeneratedDay = day;
         LastAvoidMealNames = avoidMealNames;
+        LastDietaryProfile = dietaryProfile;
         // Mirror the real service: the returned meal's Day is pinned to the requested day.
         var meal = RegeneratedMeal;
         IReadOnlyList<MealPlanMeal>? list = meal is null ? null : new List<MealPlanMeal> { meal with { Day = day } };

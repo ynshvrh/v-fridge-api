@@ -105,10 +105,11 @@ public static class ChatEndpoints
         // fall back to "any" / "en" for accounts that have never set them.
         var prefs = await db.Users
             .Where(u => u.Id == uid)
-            .Select(u => new { u.CuisinePreference, u.PreferredLanguage })
+            .Select(u => new { u.CuisinePreference, u.PreferredLanguage, u.DietaryProfile })
             .FirstOrDefaultAsync(ct);
         var cuisinePreference = Contracts.SupportedCuisines.Normalize(prefs?.CuisinePreference);
         var language = Contracts.SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+        var dietaryProfile = prefs?.DietaryProfile;
 
         string? aiText;
         try
@@ -119,6 +120,7 @@ public static class ChatEndpoints
                 req.Content,
                 cuisinePreference,
                 language,
+                dietaryProfile,
                 ct);
         }
         catch (Exception ex)
