@@ -89,25 +89,55 @@ Defaults:
 | `GET /`                             | Service metadata                              |
 | `GET /health`                       | Liveness + DB check                           |
 | `GET /openapi/v1.json`              | OpenAPI 3 document                            |
-| **Auth**                            |                                               |
+| **Auth** (Token optional/required)  |                                               |
 | `POST /auth/signup`                 | Create account + send verification email      |
 | `POST /auth/login`                  | Email + password → JWT pair                   |
 | `POST /auth/refresh`                | Rotate refresh token → new JWT pair           |
 | `POST /auth/logout`                 | Revoke refresh token                          |
 | `GET  /auth/verify-email?token=`    | Confirm email (redirects to `Frontend:BaseUrl`) |
-| `POST /auth/resend-verification`    | Resend confirmation email (silent on unknown email) |
+| `POST /auth/resend-verification`    | Resend confirmation email                     |
 | `POST /auth/google`                 | Sign in with a Google ID token                |
-| `GET  /auth/me`                     | Current user (requires Bearer token)          |
+| `GET  /auth/me`                     | Current user info                             |
+| `PATCH /auth/me/preferences`        | Update language, cuisine, dietary preferences |
+| **Fridges** (Bearer required)       |                                               |
+| `GET  /fridges`                     | List user's shared fridges                    |
+| `POST /fridges`                     | Create a new shared fridge                    |
+| `PATCH /fridges/{id}`               | Rename a fridge                               |
+| `DELETE /fridges/{id}`              | Delete a fridge (owner only)                  |
+| `DELETE /fridges/{id}/members/me`   | Leave a shared fridge                         |
+| `POST /fridges/{id}/invites`        | Invite a user to a shared fridge              |
+| `POST /fridges/accept`              | Accept a fridge invitation                    |
 | **Products** (Bearer required)      |                                               |
-| `GET  /products`                    | List owned, ordered by expiry                 |
-| `POST /products`                    | Create                                        |
-| `PATCH /products/{id}`              | Partial update                                |
-| `DELETE /products/{id}`             | Delete one                                    |
-| `DELETE /products`                  | Delete all owned                              |
+| `GET  /products`                    | List active fridge items, ordered by expiry   |
+| `POST /products`                    | Add a new product                             |
+| `PATCH /products/{id}`              | Update product quantity, expiry date, name    |
+| `DELETE /products/{id}`             | Delete one product                            |
+| `DELETE /products`                  | Clear active fridge products                  |
+| **Shopping List** (Bearer required) |                                               |
+| `GET  /shopping`                    | List shopping items                           |
+| `POST /shopping`                    | Add item to shopping list                     |
+| `PATCH /shopping/{id}`              | Toggle checked state or update details        |
+| `DELETE /shopping/{id}`             | Delete item from shopping list                |
+| `POST /shopping/{id}/purchase`      | Purchase item (moves it to fridge inventory)  |
+| **Meal Planner** (Bearer required)  |                                               |
+| `GET  /meal-plan`                   | Get the weekly meal plan                      |
+| `POST /meal-plan`                   | Generate a new weekly meal plan (via AI)      |
+| `POST /meal-plan/regenerate-day`    | Regenerate plan for a specific day            |
+| `POST /meal-plan/regenerate-meal`   | Regenerate plan for a specific single meal    |
+| `POST /meal-plan/recipe`            | Retrieve full AI recipe instructions          |
+| `POST /meal-plan/import-gaps`       | Import missing ingredients to shopping list   |
+| **Nutrition Tracker** (Bearer req)  |                                               |
+| `GET  /nutrition/daily`             | Retrieve daily logs and target progress       |
+| `POST /nutrition/log`               | Log a meal consumed                           |
+| `PUT  /nutrition/log/{id}`          | Edit a logged meal entry                      |
+| `DELETE /nutrition/log/{id}`        | Delete a logged meal entry                    |
+| `POST /nutrition/targets`           | Set daily calorie and macro targets           |
+| **Analytics** (Bearer required)     |                                               |
+| `GET  /analytics`                   | Get inventory and waste summaries             |
 | **Chat** (Bearer required)          |                                               |
 | `GET  /chat`                        | Last 24h, max 20 messages                     |
 | `POST /chat`                        | Ask the AI chef (rate-limited 5/60s)          |
-| `DELETE /chat`                      | Clear history                                 |
+| `DELETE /chat`                      | Clear chat history                            |
 
 Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
 
@@ -189,10 +219,21 @@ Validation errors (e.g. wrong DTO shape) come back as RFC 7807 `ProblemDetails` 
 
 The schema lives in this repo as plain `.sql` migrations under `src/VFridge.Api/Migrations/`:
 
-| File              | Purpose                                                                          |
-| ----------------- | -------------------------------------------------------------------------------- |
-| `000_initial.sql` | Base tables (`users`, `products`, `chat`). Created idempotently with `IF NOT EXISTS`. |
-| `001_auth.sql`    | Additive: `email_verifications`, `email_verification_tokens`, `oauth_logins`, `refresh_tokens`. |
+| File                                  | Purpose                                                                 |
+| ------------------------------------- | ----------------------------------------------------------------------- |
+| `000_initial.sql`                     | Base tables (`users`, `products`, `chat`).                              |
+| `001_auth.sql`                        | Auth additions: email verification, refresh tokens, Google OAuth logins |
+| `002_categories.sql`                  | Categorized inventory tables                                            |
+| `003_shopping_items.sql`              | Custom shopping list structures                                         |
+| `004_consumption_log.sql`             | Log for product consumption and waste tracking                          |
+| `005_shared_fridges.sql`              | Multi-fridge sharing, owners, invitations, and membership               |
+| `006_username_display_name.sql`       | User display name and username extensions                               |
+| `007_user_preferred_language.sql`     | User localization language settings                                     |
+| `008_user_cuisine_preference.sql`     | Cuisine preference presets for recipe generations                      |
+| `009_shopping_items_fridge_id.sql`    | Associating shopping items with specific shared fridges                 |
+| `010_meal_plans.sql`                  | Storing generated weekly meals                                          |
+| `011_user_dietary_profile.sql`        | Storing custom dietary restrictions (e.g. Vegan, Keto)                  |
+| `012_calorie_tracker.sql`             | Calorie and daily macro targets tracker tables                          |
 
 `Infrastructure/SqlMigrator.cs` is a tiny additive-migration runner: on every startup it picks up each `NNN_*.sql`, hashes its filename, and applies it once per database (tracked in `schema_migrations`). New migration? Drop the next-numbered file alongside the existing ones — the host applies it at startup, the integration tests pick it up automatically (see `tests/VFridge.Api.Tests/Integration/SqlMigratorTests.cs`).
 
