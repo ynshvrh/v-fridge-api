@@ -20,7 +20,7 @@ public class OpenRouterMaxTokensTests
             options,
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
-        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
+        await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, null, null, CancellationToken.None);
 
         var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
         using var doc = JsonDocument.Parse(body!);
@@ -61,7 +61,7 @@ public class OpenRouterMaxTokensTests
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
         await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", null, CancellationToken.None);
+            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", null, null, null, CancellationToken.None);
 
         using var doc = JsonDocument.Parse(capture.LastRequestBody!);
         var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
@@ -84,7 +84,7 @@ public class OpenRouterMaxTokensTests
             NullLogger<OpenRouterMealPlannerService>.Instance);
 
         await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
+            Array.Empty<MealPlanInventoryItem>(), "any", "en", null, null, null, CancellationToken.None);
 
         using var doc = JsonDocument.Parse(capture.LastRequestBody!);
         var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
@@ -145,7 +145,7 @@ public class OpenRouterMaxTokensTests
         var options = Options.Create(new OpenRouterOptions { ApiKey = "k", Models = ["weak:free", "good:free"], MaxTokens = 2048 });
         var service = new OpenRouterMealPlannerService(new HttpClient(handler), options, NullLogger<OpenRouterMealPlannerService>.Instance);
 
-        var plan = await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, CancellationToken.None);
+        var plan = await service.GenerateAsync(Array.Empty<MealPlanInventoryItem>(), "any", "en", null, null, null, CancellationToken.None);
 
         plan.Should().NotBeNull();
         handler.Requests.Should().HaveCount(2);

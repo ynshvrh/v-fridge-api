@@ -17,9 +17,18 @@ public sealed class OpenRouterMealPlannerService(
     // is what lets the whole 5-meal plan fit inside the free-tier token budget; the per-meal
     // recipe (description + steps) is fetched lazily via GenerateRecipeAsync when the user
     // opens a meal card.
+    private static readonly List<string> DayList = new()
+    {
+        "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
+    };
+
+    // Light plan: names + ingredients only, NO description/steps. Keeping the response small
+    // is what lets the whole 7-day plan fit inside the free-tier token budget; the per-meal
+    // recipe (description + steps) is fetched lazily via GenerateRecipeAsync when the user
+    // opens a meal card.
     private const string SystemPrompt =
-        "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 15 weekday " +
-        "meals (3 meals per day: breakfast, lunch, and dinner, assigned to Monday, Tuesday, Wednesday, Thursday, Friday). For each meal " +
+        "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 21 weekday " +
+        "meals (3 meals per day: breakfast, lunch, and dinner, assigned to Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday). For each meal " +
         "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
         "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
         "needs them. Do not combine incompatible ingredients (e.g. do not put bananas into borscht or savory salads). If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
@@ -57,7 +66,7 @@ public sealed class OpenRouterMealPlannerService(
     // Shared trailing rule: machine codes stay English no matter the requested language.
     private const string DayAndCategoryRule =
         "The \"day\" value must always be one of the English weekday names Monday, Tuesday, Wednesday, " +
-        "Thursday, Friday. The \"mealType\" value must always be one of these English codes: breakfast, lunch, dinner. " +
+        "Thursday, Friday, Saturday, Sunday. The \"mealType\" value must always be one of these English codes: breakfast, lunch, dinner. " +
         "The \"category\" must always be one of these English codes: dairy, meat-fish, " +
         "vegetables, fruits, bakery, pantry, snacks, drinks, alcohol, sauces, frozen, canned-prepared, other. " +
         "Never translate \"day\", \"mealType\", or \"category\" — they are machine codes. If asked to write in another " +
@@ -70,6 +79,8 @@ public sealed class OpenRouterMealPlannerService(
         string cuisinePreference,
         string language,
         string? dietaryProfile,
+        string? currentDay,
+        IReadOnlyList<MealPlanMeal>? existingMeals,
         CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(_opts.ApiKey))
@@ -78,14 +89,66 @@ public sealed class OpenRouterMealPlannerService(
             return null;
         }
 
-        var messages = BuildMessages(SystemPrompt, cuisinePreference, language, dietaryProfile, InventoryText(inventory));
+        var dayIndex = -1;
+        if (!string.IsNullOrWhiteSpace(currentDay))
+        {
+            dayIndex = DayList.FindIndex(d => d.Equals(currentDay.Trim(), StringComparison.OrdinalIgnoreCase));
+        }
+
+        string activePrompt;
+        var keptMeals = new List<MealPlanMeal>();
+
+        if (dayIndex > 0 && existingMeals != null && existingMeals.Count > 0)
+        {
+            keptMeals = existingMeals
+                .Where(m => {
+                    var mIndex = DayList.FindIndex(d => d.Equals(m.Day, StringComparison.OrdinalIgnoreCase));
+                    return mIndex >= 0 && mIndex < dayIndex;
+                })
+                .ToList();
+
+            var remainingDays = DayList.Skip(dayIndex).ToList();
+            var remainingDaysStr = string.Join(", ", remainingDays);
+            var mealsCount = remainingDays.Count * 3;
+
+            var existingMealsSummary = string.Join(", ", keptMeals.Select(m => $"{m.Name} ({m.Day})"));
+
+            activePrompt =
+                $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly {mealsCount} weekday " +
+                $"meals (3 meals per day: breakfast, lunch, and dinner, assigned to {remainingDaysStr}). For each meal " +
+                "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
+                "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
+                "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
+                $"We already have meals planned for previous days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
+                "Respond with strict JSON matching this schema, no prose: " +
+                "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]," +
+                "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
+                DayAndCategoryRule;
+        }
+        else
+        {
+            activePrompt = SystemPrompt;
+        }
+
+        var messages = BuildMessages(activePrompt, cuisinePreference, language, dietaryProfile, InventoryText(inventory));
 
         var root = await SendAndParseAsync(messages, "meal-plan", ct);
         if (root is null) return null;
 
-        var meals = root.Value.TryGetProperty("meals", out var mealsEl) && mealsEl.ValueKind == JsonValueKind.Array
+        var parsedMeals = root.Value.TryGetProperty("meals", out var mealsEl) && mealsEl.ValueKind == JsonValueKind.Array
             ? mealsEl.EnumerateArray().Select(ParseMeal).Where(m => m is not null).Select(m => m!).ToList()
             : new List<MealPlanMeal>();
+
+        var newMeals = parsedMeals;
+        if (dayIndex > 0)
+        {
+            newMeals = parsedMeals.Where(m => {
+                var mIndex = DayList.FindIndex(d => d.Equals(m.Day, StringComparison.OrdinalIgnoreCase));
+                return mIndex >= dayIndex;
+            }).ToList();
+        }
+
+        var meals = keptMeals.Concat(newMeals).ToList();
 
         var gapItems = root.Value.TryGetProperty("gapItems", out var gapsEl) && gapsEl.ValueKind == JsonValueKind.Array
             ? gapsEl.EnumerateArray().Select(ParseGap).Where(g => g is not null).Select(g => g!).ToList()

@@ -107,7 +107,14 @@ public static class MealPlanEndpoints
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, row.UpdatedAt));
     }
 
+    private static bool IsSameCalendarWeek(DateTime date1, DateTime date2)
+    {
+        return System.Globalization.ISOWeek.GetWeekOfYear(date1) == System.Globalization.ISOWeek.GetWeekOfYear(date2) &&
+               System.Globalization.ISOWeek.GetYear(date1) == System.Globalization.ISOWeek.GetYear(date2);
+    }
+
     private static async Task<IResult> GenerateAsync(
+        string? currentDay,
         VFridgeDbContext db,
         ICurrentUser me,
         FridgeContext fridgeContext,
@@ -125,9 +132,6 @@ public static class MealPlanEndpoints
             .Select(p => new MealPlanInventoryItem(p.Name, p.Quantity, p.Unit, p.Category))
             .ToListAsync(ct);
 
-        // Steer the plan by the same stored preferences the chef uses, so the two stay
-        // consistent (a Ukrainian-cuisine user gets borscht, not random tacos) and the plan
-        // is written in the user's language. Read from the user record, not Accept-Language.
         var prefs = await db.Users
             .Where(u => u.Id == uid)
             .Select(u => new { u.CuisinePreference, u.PreferredLanguage, u.DietaryProfile })
@@ -136,7 +140,36 @@ public static class MealPlanEndpoints
         var language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
         var dietaryProfile = prefs?.DietaryProfile;
 
-        var plan = await planner.GenerateAsync(inventory, cuisinePreference, language, dietaryProfile, ct);
+        var existing = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        List<MealPlanMeal>? existingMeals = null;
+        List<MealPlanGapItem>? existingGaps = null;
+        bool isSameWeek = false;
+
+        if (existing is not null)
+        {
+            isSameWeek = IsSameCalendarWeek(existing.UpdatedAt, DateTime.UtcNow);
+            if (isSameWeek)
+            {
+                existingMeals = JsonSerializer.Deserialize<List<MealPlanMeal>>(existing.MealsJson, CacheJson);
+                existingGaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(existing.GapItemsJson, CacheJson);
+            }
+        }
+
+        string? validatedDay = null;
+        if (!string.IsNullOrWhiteSpace(currentDay) && Weekdays.TryGetValue(currentDay.Trim(), out var canonicalDay))
+        {
+            validatedDay = canonicalDay;
+        }
+
+        var plan = await planner.GenerateAsync(
+            inventory,
+            cuisinePreference,
+            language,
+            dietaryProfile,
+            isSameWeek ? validatedDay : null,
+            isSameWeek ? existingMeals : null,
+            ct);
+
         if (plan is null)
         {
             return Results.Problem(
@@ -144,14 +177,21 @@ public static class MealPlanEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        // Upsert the cached row for this fridge. We serialize meals + gaps
-        // separately so a future migration could pivot to typed columns
-        // without rewriting blobs in two places.
-        var mealsJson = JsonSerializer.Serialize(plan.Meals, CacheJson);
-        var gapsJson = JsonSerializer.Serialize(plan.GapItems, CacheJson);
-        var now = DateTime.UtcNow;
+        // If doing incremental planning, merge the new gap items with the old gap items (deduping by name)
+        var finalGaps = plan.GapItems.ToList();
+        if (isSameWeek && validatedDay is not null && existingGaps is not null)
+        {
+            finalGaps = existingGaps
+                .Concat(plan.GapItems)
+                .GroupBy(g => g.Name.ToLower().Trim())
+                .Select(grp => grp.First())
+                .ToList();
+        }
 
-        var existing = await db.MealPlans.FirstOrDefaultAsync(p => p.FridgeId == fridgeId, ct);
+        var now = DateTime.UtcNow;
+        var mealsJson = JsonSerializer.Serialize(plan.Meals, CacheJson);
+        var gapsJson = JsonSerializer.Serialize(finalGaps, CacheJson);
+
         if (existing is null)
         {
             db.MealPlans.Add(new MealPlanRecord
@@ -171,14 +211,14 @@ public static class MealPlanEndpoints
         }
         await db.SaveChangesAsync(ct);
 
-        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, plan.GapItems.ToList(), ct);
-        return Results.Ok(plan with { GapItems = filteredGaps, GeneratedAt = now });
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, finalGaps, ct);
+        return Results.Ok(new MealPlanResponse(plan.Meals, filteredGaps, now));
     }
 
     public sealed record RegenerateDayRequest(string Day);
     public sealed record RegenerateMealRequest(string Day, string MealType);
 
-    // The five weekdays the planner assigns meals to. Case-insensitive match; the canonical
+    // The seven weekdays the planner assigns meals to. Case-insensitive match; the canonical
     // English code is what gets stored and pinned on the regenerated meal.
     private static readonly Dictionary<string, string> Weekdays = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -187,6 +227,8 @@ public static class MealPlanEndpoints
         ["wednesday"] = "Wednesday",
         ["thursday"] = "Thursday",
         ["friday"] = "Friday",
+        ["saturday"] = "Saturday",
+        ["sunday"] = "Sunday",
     };
 
     private static async Task<IResult> RegenerateDayAsync(
@@ -203,7 +245,7 @@ public static class MealPlanEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday"]
             });
         }
 
@@ -272,7 +314,7 @@ public static class MealPlanEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday"]
             });
         }
 
@@ -356,7 +398,7 @@ public static class MealPlanEndpoints
         {
             return Results.ValidationProblem(new Dictionary<string, string[]>
             {
-                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday"]
+                ["day"] = ["Day must be one of Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday"]
             });
         }
 

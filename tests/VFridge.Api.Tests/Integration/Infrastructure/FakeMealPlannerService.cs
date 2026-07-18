@@ -50,6 +50,8 @@ public sealed class FakeMealPlannerService : IMealPlannerService
         string cuisinePreference,
         string language,
         string? dietaryProfile,
+        string? currentDay,
+        IReadOnlyList<MealPlanMeal>? existingMeals,
         CancellationToken ct)
     {
         CallCount++;

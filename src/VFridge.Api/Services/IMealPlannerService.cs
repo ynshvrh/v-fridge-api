@@ -15,6 +15,8 @@ public interface IMealPlannerService
         string cuisinePreference,
         string language,
         string? dietaryProfile,
+        string? currentDay,
+        IReadOnlyList<MealPlanMeal>? existingMeals,
         CancellationToken ct);
 
     /// <summary>
