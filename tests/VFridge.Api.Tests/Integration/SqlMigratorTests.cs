@@ -60,6 +60,7 @@ public class SqlMigratorTests : IAsyncLifetime
             "fridges",
             "fridge_members",
             "fridge_invites",
+            "nutrition_logs",
         });
     }
 
@@ -88,7 +89,7 @@ public class SqlMigratorTests : IAsyncLifetime
         var applied = await db.Database
             .SqlQueryRaw<string>("SELECT name FROM schema_migrations ORDER BY name")
             .ToListAsync();
-        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql", "003_shopping_items.sql", "004_consumption_log.sql", "005_shared_fridges.sql", "006_username_display_name.sql", "007_user_preferred_language.sql", "008_user_cuisine_preference.sql", "009_shopping_items_fridge_id.sql", "010_meal_plans.sql", "011_user_dietary_profile.sql");
+        applied.Should().Equal("000_initial.sql", "001_auth.sql", "002_categories.sql", "003_shopping_items.sql", "004_consumption_log.sql", "005_shared_fridges.sql", "006_username_display_name.sql", "007_user_preferred_language.sql", "008_user_cuisine_preference.sql", "009_shopping_items_fridge_id.sql", "010_meal_plans.sql", "011_user_dietary_profile.sql", "012_calorie_tracker.sql");
     }
 
     private IServiceScope BuildScope()
