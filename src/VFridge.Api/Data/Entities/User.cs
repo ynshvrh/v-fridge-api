@@ -25,6 +25,8 @@ public partial class User
 
     public string? DietaryProfile { get; set; }
 
+    public string? Avatar { get; set; }
+
     public int? DailyCaloriesTarget { get; set; }
     public decimal? DailyProteinTarget { get; set; }
     public decimal? DailyFatTarget { get; set; }

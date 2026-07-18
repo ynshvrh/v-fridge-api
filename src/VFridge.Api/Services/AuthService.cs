@@ -47,7 +47,8 @@ public sealed class AuthService(
             EmailVerified: false,
             user.PreferredLanguage,
             user.CuisinePreference,
-            user.DietaryProfile);
+            user.DietaryProfile,
+            user.Avatar);
         await SendVerificationEmailAsync(user, ct);
         return (true, null, summary);
     }
@@ -240,7 +241,8 @@ public sealed class AuthService(
             verified,
             user.PreferredLanguage,
             user.CuisinePreference,
-            user.DietaryProfile);
+            user.DietaryProfile,
+            user.Avatar);
     }
 
     public const string PreferencesErrorUnsupportedLanguage = "UNSUPPORTED_LANGUAGE";
@@ -278,7 +280,56 @@ public sealed class AuthService(
             verified,
             user.PreferredLanguage,
             user.CuisinePreference,
-            user.DietaryProfile));
+            user.DietaryProfile,
+            user.Avatar));
+    }
+
+    public const string ProfileErrorIncorrectPassword = "INCORRECT_PASSWORD";
+
+    public async Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdateProfileAsync(
+        int userId,
+        UpdateProfileRequest req,
+        CancellationToken ct)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null) return (false, null, null);
+
+        if (req.Username is not null)
+        {
+            var trimmed = req.Username.Trim();
+            if (string.IsNullOrWhiteSpace(trimmed))
+            {
+                return (false, "INVALID_USERNAME", null);
+            }
+            user.Username = trimmed;
+        }
+
+        if (req.Avatar is not null)
+        {
+            user.Avatar = req.Avatar.Trim();
+        }
+
+        if (req.NewPassword is not null)
+        {
+            if (string.IsNullOrEmpty(req.CurrentPassword) || !hasher.Verify(req.CurrentPassword, user.Password))
+            {
+                return (false, ProfileErrorIncorrectPassword, null);
+            }
+            user.Password = hasher.Hash(req.NewPassword);
+        }
+
+        await db.SaveChangesAsync(ct);
+
+        var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
+        return (true, null, new UserSummary(
+            user.Id,
+            user.Username,
+            user.Email,
+            verified,
+            user.PreferredLanguage,
+            user.CuisinePreference,
+            user.DietaryProfile,
+            user.Avatar));
     }
 
     private async Task<TokenPair> IssueTokenPairAsync(User user, CancellationToken ct)
@@ -310,7 +361,8 @@ public sealed class AuthService(
                 verified,
                 user.PreferredLanguage,
                 user.CuisinePreference,
-                user.DietaryProfile));
+                user.DietaryProfile,
+                user.Avatar));
     }
 
     private async Task SendVerificationEmailAsync(User user, CancellationToken ct)

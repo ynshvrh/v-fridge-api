@@ -32,7 +32,14 @@ public sealed record UserSummary(
     bool EmailVerified,
     string PreferredLanguage,
     string CuisinePreference,
-    string? DietaryProfile = null);
+    string? DietaryProfile = null,
+    string? Avatar = null);
+
+public sealed record UpdateProfileRequest(
+    [property: MaxLength(50)] string? Username = null,
+    string? Avatar = null,
+    [property: MinLength(6)] string? NewPassword = null,
+    string? CurrentPassword = null);
 
 /// <summary>
 /// Partial-update DTO for /auth/me/preferences. Both fields are optional; only the ones

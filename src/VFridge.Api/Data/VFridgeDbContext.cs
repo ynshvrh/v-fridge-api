@@ -116,6 +116,9 @@ public partial class VFridgeDbContext : DbContext
             entity.Property(e => e.DietaryProfile)
                 .HasMaxLength(1000)
                 .HasColumnName("dietary_profile");
+            entity.Property(e => e.Avatar)
+                .HasMaxLength(50)
+                .HasColumnName("avatar");
             entity.Property(e => e.DailyCaloriesTarget).HasColumnName("daily_calories_target");
             entity.Property(e => e.DailyProteinTarget)
                 .HasPrecision(6, 2)

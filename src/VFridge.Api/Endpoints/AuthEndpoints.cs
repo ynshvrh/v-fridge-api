@@ -91,6 +91,14 @@ public static class AuthEndpoints
             .Produces<ApiError>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized);
 
+        group.MapPatch("/me", UpdateProfileAsync)
+            .RequireAuthorization()
+            .WithName("UpdateProfile")
+            .WithSummary("Update the caller's profile (username, avatar, password)")
+            .Produces<UserSummary>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status401Unauthorized);
+
         return app;
     }
 
@@ -267,6 +275,26 @@ public static class AuthEndpoints
                 code,
                 error = "cuisinePreference must be one of: ukrainian, georgian, italian, french, mexican, middle-eastern, indian, chinese, japanese, thai, american, any"
             }),
+            _ => Results.NotFound()
+        };
+    }
+
+    private static async Task<IResult> UpdateProfileAsync(
+        UpdateProfileRequest req,
+        AuthService auth,
+        ICurrentUser me,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
+
+        var (ok, code, user) = await auth.UpdateProfileAsync(uid, req, ct);
+        if (ok && user is not null) return Results.Ok(user);
+
+        return code switch
+        {
+            AuthService.ProfileErrorIncorrectPassword => Results.BadRequest(new { code, error = "Incorrect password" }),
+            "INVALID_USERNAME" => Results.BadRequest(new { code, error = "Username cannot be empty" }),
             _ => Results.NotFound()
         };
     }
