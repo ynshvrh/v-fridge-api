@@ -98,28 +98,26 @@ public sealed class OpenRouterMealPlannerService(
         string activePrompt;
         var keptMeals = new List<MealPlanMeal>();
 
-        if (dayIndex > 0 && existingMeals != null && existingMeals.Count > 0)
+        if (dayIndex >= 0)
         {
-            keptMeals = existingMeals
-                .Where(m => {
-                    var mIndex = DayList.FindIndex(d => d.Equals(m.Day, StringComparison.OrdinalIgnoreCase));
-                    return mIndex >= 0 && mIndex < dayIndex;
-                })
-                .ToList();
+            if (existingMeals != null && existingMeals.Count > 0)
+            {
+                keptMeals = existingMeals
+                    .Where(m => !m.Day.Equals(currentDay, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
 
-            var remainingDays = DayList.Skip(dayIndex).ToList();
-            var remainingDaysStr = string.Join(", ", remainingDays);
-            var mealsCount = remainingDays.Count * 3;
-
-            var existingMealsSummary = string.Join(", ", keptMeals.Select(m => $"{m.Name} ({m.Day})"));
+            var existingMealsSummary = keptMeals.Count > 0
+                ? string.Join(", ", keptMeals.Select(m => $"{m.Name} ({m.Day})"))
+                : "None";
 
             activePrompt =
-                $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly {mealsCount} weekday " +
-                $"meals (3 meals per day: breakfast, lunch, and dinner, assigned to {remainingDaysStr}). For each meal " +
+                $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 3 weekday " +
+                $"meals (breakfast, lunch, and dinner, assigned to {currentDay}). For each meal " +
                 "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
                 "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
                 "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
-                $"We already have meals planned for previous days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
+                $"We already have meals planned for other days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
                 "Respond with strict JSON matching this schema, no prose: " +
                 "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]," +
                 "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
@@ -140,15 +138,14 @@ public sealed class OpenRouterMealPlannerService(
             : new List<MealPlanMeal>();
 
         var newMeals = parsedMeals;
-        if (dayIndex > 0)
+        if (dayIndex >= 0)
         {
-            newMeals = parsedMeals.Where(m => {
-                var mIndex = DayList.FindIndex(d => d.Equals(m.Day, StringComparison.OrdinalIgnoreCase));
-                return mIndex >= dayIndex;
-            }).ToList();
+            newMeals = parsedMeals.Where(m => m.Day.Equals(currentDay, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
-        var meals = keptMeals.Concat(newMeals).ToList();
+        var meals = keptMeals.Concat(newMeals)
+            .OrderBy(m => DayList.FindIndex(d => d.Equals(m.Day, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
 
         var gapItems = root.Value.TryGetProperty("gapItems", out var gapsEl) && gapsEl.ValueKind == JsonValueKind.Array
             ? gapsEl.EnumerateArray().Select(ParseGap).Where(g => g is not null).Select(g => g!).ToList()

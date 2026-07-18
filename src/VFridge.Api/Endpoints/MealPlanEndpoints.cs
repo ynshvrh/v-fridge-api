@@ -161,12 +161,17 @@ public static class MealPlanEndpoints
             validatedDay = canonicalDay;
         }
 
+        if (validatedDay is null)
+        {
+            validatedDay = DateTime.UtcNow.DayOfWeek.ToString();
+        }
+
         var plan = await planner.GenerateAsync(
             inventory,
             cuisinePreference,
             language,
             dietaryProfile,
-            isSameWeek ? validatedDay : null,
+            validatedDay,
             isSameWeek ? existingMeals : null,
             ct);
 
