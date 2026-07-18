@@ -201,6 +201,7 @@ await SqlMigrator.ApplyAsync(
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
+app.UseStaticFiles();
 
 if (app.Environment.IsDevelopment())
 {

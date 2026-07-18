@@ -332,6 +332,41 @@ public sealed class AuthService(
             user.Avatar));
     }
 
+    public async Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdateAvatarAsync(
+        int userId,
+        string avatarUrl,
+        string webRootPath,
+        CancellationToken ct)
+    {
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
+        if (user is null) return (false, null, null);
+
+        // Delete old avatar if it exists
+        if (!string.IsNullOrEmpty(user.Avatar) && user.Avatar.StartsWith("/avatars/"))
+        {
+            var oldFilename = Path.GetFileName(user.Avatar);
+            var oldPath = Path.Combine(webRootPath, "avatars", oldFilename);
+            if (File.Exists(oldPath))
+            {
+                try { File.Delete(oldPath); } catch { /* ignore error */ }
+            }
+        }
+
+        user.Avatar = avatarUrl;
+        await db.SaveChangesAsync(ct);
+
+        var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == userId, ct);
+        return (true, null, new UserSummary(
+            user.Id,
+            user.Username,
+            user.Email,
+            verified,
+            user.PreferredLanguage,
+            user.CuisinePreference,
+            user.DietaryProfile,
+            user.Avatar));
+    }
+
     private async Task<TokenPair> IssueTokenPairAsync(User user, CancellationToken ct)
     {
         var (access, accessExpires) = tokens.IssueAccessToken(user.Id, user.Username, user.Email);

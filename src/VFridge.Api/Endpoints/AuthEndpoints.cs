@@ -99,6 +99,16 @@ public static class AuthEndpoints
             .Produces<ApiError>(StatusCodes.Status400BadRequest)
             .Produces(StatusCodes.Status401Unauthorized);
 
+        group.MapPost("/me/avatar", UploadAvatarAsync)
+            .RequireAuthorization()
+            .DisableAntiforgery()
+            .WithName("UploadAvatar")
+            .WithSummary("Upload a new profile avatar image")
+            .Produces<UserSummary>(StatusCodes.Status200OK)
+            .Produces<ApiError>(StatusCodes.Status400BadRequest)
+            .Produces(StatusCodes.Status413PayloadTooLarge)
+            .Produces(StatusCodes.Status401Unauthorized);
+
         return app;
     }
 
@@ -297,6 +307,62 @@ public static class AuthEndpoints
             "INVALID_USERNAME" => Results.BadRequest(new { code, error = "Username cannot be empty" }),
             _ => Results.NotFound()
         };
+    }
+
+    private static async Task<IResult> UploadAvatarAsync(
+        IFormFile file,
+        AuthService auth,
+        ICurrentUser me,
+        IWebHostEnvironment env,
+        CancellationToken ct)
+    {
+        if (me.UserId is not int uid) return Results.Unauthorized();
+        if (file is null || file.Length == 0)
+        {
+            return Results.BadRequest(new { code = "INVALID_FILE", error = "No file uploaded or file is empty" });
+        }
+
+        // Validate file type (images only)
+        var allowedTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp" };
+        if (!allowedTypes.Contains(file.ContentType.ToLowerInvariant()))
+        {
+            return Results.BadRequest(new { code = "INVALID_FILE_TYPE", error = "Only JPEG, PNG, GIF, and WEBP images are allowed" });
+        }
+
+        // Validate size (5MB max)
+        if (file.Length > 5 * 1024 * 1024)
+        {
+            return Results.BadRequest(new { code = "FILE_TOO_LARGE", error = "File size exceeds 5MB limit" });
+        }
+
+        // Ensure directories exist
+        var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
+        var avatarsDir = Path.Combine(webRoot, "avatars");
+        if (!Directory.Exists(avatarsDir))
+        {
+            Directory.CreateDirectory(avatarsDir);
+        }
+
+        // Unique filename: unique_user_{uid}_{timestamp}.{ext}
+        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (string.IsNullOrEmpty(ext)) ext = ".png"; // default
+        var filename = $"avatar_{uid}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
+        var filepath = Path.Combine(avatarsDir, filename);
+
+        // Save file
+        await using (var stream = new FileStream(filepath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream, ct);
+        }
+
+        // Public URL of the avatar: /avatars/filename
+        var avatarUrl = $"/avatars/{filename}";
+
+        // Save URL to database
+        var (ok, code, user) = await auth.UpdateAvatarAsync(uid, avatarUrl, webRoot, ct);
+        if (ok && user is not null) return Results.Ok(user);
+
+        return Results.NotFound();
     }
 
     private static bool TryValidate<T>(T instance, out Dictionary<string, string[]> errors) where T : class
