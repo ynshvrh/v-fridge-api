@@ -60,7 +60,7 @@ public static class NutritionEndpoints
         if (me.UserId is not int uid) return Results.Unauthorized();
 
         DateOnly targetDate;
-        if (string.IsNullOrWhiteSpace(date) || !DateOnly.TryParse(date, out targetDate))
+        if (string.IsNullOrWhiteSpace(date) || !DateOnly.TryParse(date, System.Globalization.CultureInfo.InvariantCulture, out targetDate))
         {
             targetDate = DateOnly.FromDateTime(DateTime.UtcNow);
         }
@@ -112,7 +112,7 @@ public static class NutritionEndpoints
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         DateOnly date;
-        if (!DateOnly.TryParse(req.Date, out date))
+        if (!DateOnly.TryParse(req.Date, System.Globalization.CultureInfo.InvariantCulture, out date))
         {
             date = DateOnly.FromDateTime(DateTime.UtcNow);
         }

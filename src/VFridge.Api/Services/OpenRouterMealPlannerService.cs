@@ -29,7 +29,7 @@ public sealed class OpenRouterMealPlannerService(
     private const string SystemPrompt =
         "You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 21 weekday " +
         "meals (3 meals per day: breakfast, lunch, and dinner, assigned to Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday). For each meal " +
-        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
+        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. Use " +
         "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
         "needs them. Do not combine incompatible ingredients (e.g. do not put bananas into borscht or savory salads). If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
         "Respond with strict JSON matching this schema, no prose: " +
@@ -49,7 +49,7 @@ public sealed class OpenRouterMealPlannerService(
     private const string RegenerateDaySystemPrompt =
         "You are V-Fridge's meal planner. Propose exactly 3 meals (breakfast, lunch, dinner) for the requested weekday based on the " +
         "user's current inventory. For each meal, " +
-        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. " +
+        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. " +
         "Do not combine incompatible ingredients (e.g. do not put bananas into borscht or savory salads). If an item cannot be logically used, do not force it into a recipe. " +
         "Respond with strict JSON matching this schema, no prose: " +
         "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]} " +
@@ -57,7 +57,7 @@ public sealed class OpenRouterMealPlannerService(
 
     private const string RegenerateMealSystemPrompt =
         "You are V-Fridge's meal planner. Propose exactly 1 meal for the requested weekday and meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner') based on the " +
-        "user's current inventory. Give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. " +
+        "user's current inventory. Give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. " +
         "Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe. " +
         "Respond with strict JSON matching this schema, no prose: " +
         "{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?} " +
@@ -114,7 +114,7 @@ public sealed class OpenRouterMealPlannerService(
             activePrompt =
                 $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 3 weekday " +
                 $"meals (breakfast, lunch, and dinner, assigned to {currentDay}). For each meal " +
-                "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients. Do NOT include cooking steps or a description. Use " +
+                "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. Use " +
                 "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
                 "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
                 $"We already have meals planned for other days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
