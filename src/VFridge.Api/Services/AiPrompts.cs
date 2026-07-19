@@ -17,25 +17,24 @@ public static class AiPrompts
     /// </summary>
     public static string? CultureContextFor(string cuisine) => cuisine switch
     {
-        "ukrainian" => Bias("Ukrainian", "borscht, varenyky, deruny, holubtsi, syrniki, kotleta po-kyivsky, salat olivier"),
-        "georgian"  => Bias("Georgian", "khachapuri, khinkali, lobio, mtsvadi, ajapsandali, badrijani"),
-        "italian"   => Bias("Italian", "pasta, risotto, polenta, frittata, minestrone, panzanella"),
-        "french"    => Bias("French", "omelette, ratatouille, soupe à l'oignon, quiche, blanquette"),
-        "mexican"   => Bias("Mexican", "tacos, quesadillas, fajitas, chilaquiles, sopes, tinga"),
-        "middle-eastern" => Bias("Middle Eastern", "hummus, shakshuka, tabbouleh, kebabs, falafel, fattoush"),
-        "indian"    => Bias("Indian", "curries, dal, biryani, chana masala, samosas, paratha"),
-        "chinese"   => Bias("Chinese", "stir-fries, fried rice, mapo tofu, dumplings, noodle soups"),
-        "japanese"  => Bias("Japanese", "donburi, ramen, miso soup, onigiri, teriyaki, yakisoba"),
-        "thai"      => Bias("Thai", "pad thai, green curry, tom yum, larb, basil chicken"),
-        "american"  => Bias("American", "grilled meats, BBQ, burgers, casseroles, mac and cheese"),
+        "ukrainian" => Bias("Ukrainian", "red borscht, green borscht, varenyky with potato/cabbage/mushrooms/cherries, deruny, holubtsi, syrniki, linyvi varenyky, nalisnyky, banosh with bryndza, kruchenyky, poltavski halushky, kotleta po-kyivsky, salat olivier, vinegret, domashnya pechenya, kulish, bograch, kapustnyak, shpundra, hrechanyky"),
+        "georgian"  => Bias("Georgian", "khachapuri, khinkali, lobio, mtsvadi, ajapsandali, badrijani, chashushuli, shkmeruli, satsivi, chikhirtma, lobiani"),
+        "italian"   => Bias("Italian", "pasta carbonara/bolognese/pesto, risotto, polenta, frittata, minestrone, panzanella, gnocchi, lasagne, caprese, foccacia, bruschetta"),
+        "french"    => Bias("French", "omelette, ratatouille, soupe à l'oignon, quiche, blanquette, coq au vin, beef bourguignon, croque monsieur, bouillabaisse, cassoulet, gratin dauphinois"),
+        "mexican"   => Bias("Mexican", "tacos, quesadillas, fajitas, chilaquiles, sopes, tinga, enchiladas, burritos, tostadas, guacamole, pozole, tamales"),
+        "middle-eastern" => Bias("Middle Eastern", "hummus, shakshuka, tabbouleh, kebabs, falafel, fattoush, baba ganoush, shawarma, mujadara, kofta, manakish"),
+        "indian"    => Bias("Indian", "curries, dal, biryani, chana masala, samosas, paratha, butter chicken, aloo gobi, palak paneer, tikka masala, korma"),
+        "chinese"   => Bias("Chinese", "stir-fries, fried rice, mapo tofu, dumplings, noodle soups, kung pao chicken, chow mein, hot pot, scallion pancakes, wontons"),
+        "japanese"  => Bias("Japanese", "donburi, ramen, miso soup, onigiri, teriyaki, yakisoba, tempura, udon, gyudon, katsu curry, tamagoyaki"),
+        "thai"      => Bias("Thai", "pad thai, green curry, tom yum, larb, basil chicken, pad see ew, massaman curry, mango sticky rice, som tum"),
+        "american"  => Bias("American", "grilled meats, BBQ, burgers, casseroles, mac and cheese, meatloaf, chili, clam chowder, pot roast, pancakes, waffles"),
         _ => null // "any" or unknown — chef stays neutral
     };
 
     private static string Bias(string cuisineLabel, string examples) =>
-        $"The user prefers {cuisineLabel} cuisine — typically {examples}. " +
-        "Bias your suggestions toward dishes from that culinary tradition when the " +
-        "inventory allows it. If the inventory does not cover it, adapt or suggest the " +
-        "closest substitute rather than switching cuisines.";
+        $"The user prefers {cuisineLabel} cuisine — typically dishes like {examples}. " +
+        "Suggest a wide variety of different authentic dishes from that culinary tradition based on what inventory allows. " +
+        "Do not repeat the same dish every day. If the inventory does not cover it, adapt or suggest the closest substitute rather than switching cuisines.";
 
     /// <summary>
     /// Language steering based on the user's preferred language. Expects an already-normalised
