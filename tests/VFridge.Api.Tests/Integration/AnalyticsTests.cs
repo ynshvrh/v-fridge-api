@@ -134,6 +134,13 @@ public class AnalyticsTests : IAsyncLifetime
         }
         var login = await _client.PostAsJsonAsync("/auth/login", new { email, password });
         login.EnsureSuccessStatusCode();
-        return (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
+        var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
+
+        using var tempClient = _factory.CreateClient();
+        tempClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var fr = await tempClient.PostAsJsonAsync("/fridges", new { name = $"{username}'s fridge" });
+        fr.EnsureSuccessStatusCode();
+
+        return token;
     }
 }

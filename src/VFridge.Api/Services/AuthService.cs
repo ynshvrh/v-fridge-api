@@ -38,8 +38,6 @@ public sealed class AuthService(
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
 
-        await EnsurePersonalFridgeAsync(user, ct);
-
         var summary = new UserSummary(
             user.Id,
             user.Username,
@@ -60,28 +58,6 @@ public sealed class AuthService(
         if (!string.IsNullOrEmpty(trimmed)) return trimmed.Length > 50 ? trimmed[..50] : trimmed;
         var local = email.Split('@', 2)[0];
         return local.Length > 50 ? local[..50] : local;
-    }
-
-    private async Task EnsurePersonalFridgeAsync(User user, CancellationToken ct)
-    {
-        var hasFridge = await db.Fridges.AnyAsync(f => f.OwnerId == user.Id, ct);
-        if (hasFridge) return;
-
-        var fridge = new Data.Entities.Fridge
-        {
-            Name = $"{user.Username}'s fridge",
-            OwnerId = user.Id
-        };
-        db.Fridges.Add(fridge);
-        await db.SaveChangesAsync(ct);
-
-        db.FridgeMembers.Add(new Data.Entities.FridgeMember
-        {
-            FridgeId = fridge.Id,
-            UserId = user.Id,
-            Role = Data.Entities.FridgeRoles.Owner
-        });
-        await db.SaveChangesAsync(ct);
     }
 
     public const string LoginErrorBadCredentials = "BAD_CREDENTIALS";
@@ -225,7 +201,6 @@ public sealed class AuthService(
         }
 
         await db.SaveChangesAsync(ct);
-        await EnsurePersonalFridgeAsync(user, ct);
         return await IssueTokenPairAsync(user, ct);
     }
 

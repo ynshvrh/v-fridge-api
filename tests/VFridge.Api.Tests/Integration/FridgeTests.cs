@@ -32,16 +32,13 @@ public class FridgeTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Signup_AutoCreatesPersonalFridge()
+    public async Task Signup_DoesNotAutoCreatePersonalFridge()
     {
-        var token = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123");
+        var token = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123", createFridge: false);
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var list = await _client.GetFromJsonAsync<JsonElement>("/fridges");
-        list.GetArrayLength().Should().Be(1);
-        list[0].GetProperty("role").GetString().Should().Be("owner");
-        list[0].GetProperty("name").GetString().Should().Contain("alice");
-        list[0].GetProperty("memberCount").GetInt32().Should().Be(1);
+        list.GetArrayLength().Should().Be(0);
     }
 
     [Fact]
@@ -177,7 +174,7 @@ public class FridgeTests : IAsyncLifetime
         bobLeave.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
+    private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password, bool createFridge = true)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });
         using (var scope = _factory.CreateScope())
@@ -189,7 +186,17 @@ public class FridgeTests : IAsyncLifetime
         }
         var login = await _client.PostAsJsonAsync("/auth/login", new { email, password });
         login.EnsureSuccessStatusCode();
-        return (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
+        var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
+
+        if (createFridge)
+        {
+            using var tempClient = _factory.CreateClient();
+            tempClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            var fr = await tempClient.PostAsJsonAsync("/fridges", new { name = $"{username}'s fridge" });
+            fr.EnsureSuccessStatusCode();
+        }
+
+        return token;
     }
 
     private static string ExtractInviteToken(string html)
