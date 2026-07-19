@@ -164,7 +164,7 @@ public class MealPlanTests : IAsyncLifetime
     [Fact]
     public async Task RegenerateDay_ValidationError_ForUnsupportedDay()
     {
-        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Sunday" });
+        var resp = await _client.PostAsJsonAsync("/meal-plan/regenerate-day", new { day = "Funday" });
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
         body.GetProperty("errors").GetProperty("day")[0].GetString().Should().Contain("Monday");
@@ -228,7 +228,7 @@ public class MealPlanTests : IAsyncLifetime
     [Fact]
     public async Task GetRecipe_ValidationError_ForUnsupportedDay()
     {
-        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Sunday", mealType = "lunch" });
+        var resp = await _client.PostAsJsonAsync("/meal-plan/recipe", new { day = "Funday", mealType = "lunch" });
         resp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
     }
 
