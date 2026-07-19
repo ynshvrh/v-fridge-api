@@ -4,6 +4,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
 namespace VFridge.Api.Endpoints;
 
@@ -105,6 +106,7 @@ public static class NutritionEndpoints
         LogFoodRequest req,
         VFridgeDbContext db,
         ICurrentUser me,
+        FridgeContext fridgeContext,
         CancellationToken ct)
     {
         if (me.UserId is not int uid) return Results.Unauthorized();
@@ -115,6 +117,30 @@ public static class NutritionEndpoints
         if (!DateOnly.TryParse(req.Date, System.Globalization.CultureInfo.InvariantCulture, out date))
         {
             date = DateOnly.FromDateTime(DateTime.UtcNow);
+        }
+
+        // If a ProductId is specified, try to find and decrement/remove it
+        if (req.ProductId is int pid)
+        {
+            var resolved = await fridgeContext.ResolveAsync(ct);
+            if (resolved is null)
+            {
+                return Results.BadRequest(new ApiError("FRIDGE_NOT_FOUND", "No active fridge resolved for inventory tracking."));
+            }
+
+            var product = await db.Products.FirstOrDefaultAsync(p => p.Id == pid && p.FridgeId == resolved.Value.FridgeId, ct);
+            if (product is not null)
+            {
+                var consumeQty = req.Quantity ?? 0;
+                if (product.Quantity <= consumeQty)
+                {
+                    db.Products.Remove(product);
+                }
+                else
+                {
+                    product.Quantity -= consumeQty;
+                }
+            }
         }
 
         var entity = new NutritionLog
@@ -316,6 +342,8 @@ public sealed class LogFoodRequest
 
     [Range(0, 1000, ErrorMessage = "Carbs must be positive and less than 1000.")]
     public decimal Carbs { get; set; }
+
+    public int? ProductId { get; set; }
 }
 
 public sealed class UpdateLogRequest
