@@ -194,6 +194,13 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
+// Ensure database schema is created via Entity Framework Core
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<VFridgeDbContext>();
+    await db.Database.EnsureCreatedAsync();
+}
+
 // Apply additive SQL migrations
 await SqlMigrator.ApplyAsync(
     app.Services,
