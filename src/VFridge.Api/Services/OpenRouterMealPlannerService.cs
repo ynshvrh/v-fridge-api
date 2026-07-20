@@ -139,7 +139,8 @@ public sealed class OpenRouterMealPlannerService(
         var newMeals = parsedMeals;
         if (dayIndex >= 0)
         {
-            newMeals = parsedMeals.Where(m => m.Day.Equals(currentDay, StringComparison.OrdinalIgnoreCase)).ToList();
+            // Pin the day to the requested code — the model occasionally drifts or localises it.
+            newMeals = parsedMeals.Select(m => m with { Day = currentDay }).ToList();
         }
 
         var meals = keptMeals.Concat(newMeals)
