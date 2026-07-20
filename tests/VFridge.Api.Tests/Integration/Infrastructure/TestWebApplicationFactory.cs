@@ -63,6 +63,11 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         builder.ConfigureAppConfiguration((_, config) =>
         {
+            foreach (var source in config.Sources.OfType<FileConfigurationSource>())
+            {
+                source.ReloadOnChange = false;
+            }
+
             config.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["ConnectionStrings:Default"] = ConnectionString,
@@ -110,7 +115,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         // that runs during the next host start, but the running host's tables stay live
         // for the duration of the class, so we just truncate between methods instead.
         await db.Database.ExecuteSqlRawAsync(
-            "TRUNCATE TABLE chat, products, shopping_items, consumption_log, fridge_invites, fridge_members, fridges, refresh_tokens, email_verification_tokens, email_verifications, oauth_logins, users RESTART IDENTITY CASCADE");
+            "TRUNCATE TABLE saved_recipes, meal_plans, nutrition_logs, chat, products, shopping_items, consumption_log, fridge_invites, fridge_members, fridges, refresh_tokens, email_verification_tokens, email_verifications, oauth_logins, users RESTART IDENTITY CASCADE");
     }
 
     private static string LocateApiProjectRoot()
