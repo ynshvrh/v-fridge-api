@@ -20,6 +20,8 @@ public partial class VFridgeDbContext : DbContext
 
     public virtual DbSet<NutritionLog> NutritionLogs { get; set; }
 
+    public virtual DbSet<SavedRecipeRecord> SavedRecipes { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Chat>(entity =>
@@ -173,6 +175,35 @@ public partial class VFridgeDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
 
             entity.HasIndex(e => new { e.UserId, e.Date }).HasDatabaseName("ix_nutrition_logs_user_date");
+        });
+
+        modelBuilder.Entity<SavedRecipeRecord>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("saved_recipes_pkey");
+
+            entity.ToTable("saved_recipes");
+
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
+            entity.Property(e => e.Name).HasMaxLength(255).HasColumnName("name");
+            entity.Property(e => e.Description).HasColumnName("description");
+            entity.Property(e => e.IngredientsJson).HasColumnName("ingredients_json");
+            entity.Property(e => e.StepsJson).HasColumnName("steps_json");
+            entity.Property(e => e.Calories).HasColumnName("calories");
+            entity.Property(e => e.Protein).HasPrecision(6, 2).HasColumnName("protein");
+            entity.Property(e => e.Fat).HasPrecision(6, 2).HasColumnName("fat");
+            entity.Property(e => e.Carbs).HasPrecision(6, 2).HasColumnName("carbs");
+            entity.Property(e => e.CreatedAt)
+                .HasDefaultValueSql("CURRENT_TIMESTAMP")
+                .HasColumnType("timestamp without time zone")
+                .HasColumnName("created_at");
+
+            entity.HasOne(d => d.User).WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.UserId).HasDatabaseName("ix_saved_recipes_user_id");
         });
 
         OnModelCreatingPartial(modelBuilder);
