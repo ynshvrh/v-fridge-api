@@ -36,6 +36,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
         Environment.SetEnvironmentVariable("OpenRouter__ApiKey", "test-key");
         Environment.SetEnvironmentVariable("OpenRouter__BaseUrl", "https://openrouter.test");
         Environment.SetEnvironmentVariable("OpenRouter__Model", "test-model");
+        Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "1");
         Environment.SetEnvironmentVariable("Google__ClientId", "");
     }
 
