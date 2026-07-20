@@ -4,6 +4,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
 namespace VFridge.Api.Endpoints;
 
