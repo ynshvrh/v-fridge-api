@@ -89,44 +89,43 @@ public sealed class OpenRouterMealPlannerService(
             return null;
         }
 
-        var dayIndex = -1;
-        if (!string.IsNullOrWhiteSpace(currentDay))
+        if (string.IsNullOrWhiteSpace(currentDay))
         {
+            currentDay = DateTime.UtcNow.DayOfWeek.ToString();
+        }
+
+        var dayIndex = DayList.FindIndex(d => d.Equals(currentDay.Trim(), StringComparison.OrdinalIgnoreCase));
+        if (dayIndex < 0)
+        {
+            currentDay = DateTime.UtcNow.DayOfWeek.ToString();
             dayIndex = DayList.FindIndex(d => d.Equals(currentDay.Trim(), StringComparison.OrdinalIgnoreCase));
         }
 
         string activePrompt;
         var keptMeals = new List<MealPlanMeal>();
 
-        if (dayIndex >= 0)
+        if (existingMeals != null && existingMeals.Count > 0)
         {
-            if (existingMeals != null && existingMeals.Count > 0)
-            {
-                keptMeals = existingMeals
-                    .Where(m => !m.Day.Equals(currentDay, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-            }
-
-            var existingMealsSummary = keptMeals.Count > 0
-                ? string.Join(", ", keptMeals.Select(m => $"{m.Name} ({m.Day})"))
-                : "None";
-
-            activePrompt =
-                $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 3 weekday " +
-                $"meals (breakfast, lunch, and dinner, assigned to {currentDay}). For each meal " +
-                "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. Use " +
-                "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
-                "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
-                $"We already have meals planned for other days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
-                "Respond with strict JSON matching this schema, no prose: " +
-                "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]," +
-                "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
-                DayAndCategoryRule;
+            keptMeals = existingMeals
+                .Where(m => !m.Day.Equals(currentDay, StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
-        else
-        {
-            activePrompt = SystemPrompt;
-        }
+
+        var existingMealsSummary = keptMeals.Count > 0
+            ? string.Join(", ", keptMeals.Select(m => $"{m.Name} ({m.Day})"))
+            : "None";
+
+        activePrompt =
+            $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 3 weekday " +
+            $"meals (breakfast, lunch, and dinner, assigned to {currentDay}). For each meal " +
+            "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. Use " +
+            "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
+            "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
+            $"We already have meals planned for other days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +
+            "Respond with strict JSON matching this schema, no prose: " +
+            "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]," +
+            "\"gapItems\":[{\"name\":string,\"quantity\":string?,\"unit\":string?,\"category\":string}]} " +
+            DayAndCategoryRule;
 
         var messages = BuildMessages(activePrompt, cuisinePreference, language, dietaryProfile, InventoryText(inventory));
 

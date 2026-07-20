@@ -171,8 +171,8 @@ public static class MealPlanEndpoints
             cuisinePreference,
             language,
             dietaryProfile,
-            currentDay: null,
-            existingMeals: null,
+            currentDay: validatedDay,
+            existingMeals: existingMeals,
             ct);
 
         if (plan is null)
