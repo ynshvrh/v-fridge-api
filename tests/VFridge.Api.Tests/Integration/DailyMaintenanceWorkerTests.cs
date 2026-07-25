@@ -42,6 +42,7 @@ public class DailyMaintenanceWorkerTests : IAsyncLifetime
         });
         await ForceVerifyAsync("verified@example.com");
         var verifiedToken = await LoginAsync("verified@example.com", "secret123");
+        await CreateFridgeAsync(verifiedToken);
 
         var tomorrow = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(1));
         using (var req = new HttpRequestMessage(HttpMethod.Post, "/products"))
@@ -68,6 +69,7 @@ public class DailyMaintenanceWorkerTests : IAsyncLifetime
         });
         await ForceVerifyAsync("fresh@example.com");
         var freshToken = await LoginAsync("fresh@example.com", "secret123");
+        await CreateFridgeAsync(freshToken);
 
         var later = DateOnly.FromDateTime(DateTime.UtcNow.AddDays(30));
         using (var req = new HttpRequestMessage(HttpMethod.Post, "/products"))
@@ -143,5 +145,13 @@ public class DailyMaintenanceWorkerTests : IAsyncLifetime
         resp.EnsureSuccessStatusCode();
         var body = await resp.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
         return body.GetProperty("accessToken").GetString()!;
+    }
+
+    private async Task CreateFridgeAsync(string token)
+    {
+        using var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+        var resp = await client.PostAsJsonAsync("/fridges", new { name = "Default Fridge" });
+        resp.EnsureSuccessStatusCode();
     }
 }

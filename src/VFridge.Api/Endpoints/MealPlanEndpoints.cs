@@ -488,38 +488,45 @@ public static class MealPlanEndpoints
         if (req.Items.Count == 0) return Results.Ok(new ImportGapsResponse(0, 0));
 
         var fridgeId = resolved.Value.FridgeId;
-        var existing = await db.ShoppingItems
-            .Where(i => i.FridgeId == fridgeId && !i.Checked)
-            .Select(i => i.Name.ToLower())
+        var products = await db.Products
+            .Where(p => p.FridgeId == fridgeId)
             .ToListAsync(ct);
-        var existingSet = existing.ToHashSet();
+
+        var shoppingItems = await db.ShoppingItems
+            .Where(i => i.FridgeId == fridgeId && !i.Checked)
+            .ToListAsync(ct);
 
         var created = 0;
         var skipped = 0;
+
         foreach (var item in req.Items)
         {
-            var trimmed = item.Name.Trim();
-            if (string.IsNullOrWhiteSpace(trimmed)) { skipped++; continue; }
-            if (existingSet.Contains(trimmed.ToLower())) { skipped++; continue; }
+            var rawName = item.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(rawName)) { skipped++; continue; }
 
-            var category = ProductCategories.IsValid(item.Category) ? item.Category : ProductCategories.Other;
-            decimal? qty = null;
-            if (item.Quantity is { } q && decimal.TryParse(q, System.Globalization.NumberStyles.Number,
-                    System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+            var parsed = IngredientDeductionHelper.Parse(rawName, item.Quantity, item.Unit);
+            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, products, shoppingItems);
+
+            if (isCovered)
             {
-                qty = parsed;
+                skipped++;
+                continue;
             }
 
-            db.ShoppingItems.Add(new ShoppingItem
+            var category = ProductCategories.IsValid(item.Category) ? item.Category : ProductCategories.Other;
+
+            var newShoppingItem = new ShoppingItem
             {
                 UserId = uid,
                 FridgeId = fridgeId,
-                Name = trimmed,
-                Quantity = qty,
-                Unit = item.Unit,
+                Name = parsed.CleanName,
+                Quantity = missingQty ?? parsed.Quantity,
+                Unit = unit ?? item.Unit,
                 Category = category
-            });
-            existingSet.Add(trimmed.ToLower());
+            };
+
+            db.ShoppingItems.Add(newShoppingItem);
+            shoppingItems.Add(newShoppingItem);
             created++;
         }
 
@@ -533,13 +540,29 @@ public static class MealPlanEndpoints
         List<MealPlanGapItem> gaps,
         CancellationToken ct)
     {
-        var productNames = await db.Products
+        var products = await db.Products
             .Where(p => p.FridgeId == fridgeId)
-            .Select(p => p.Name.ToLower().Trim())
             .ToListAsync(ct);
 
-        return gaps
-            .Where(g => !productNames.Contains(g.Name.ToLower().Trim()))
-            .ToList();
+        var shoppingItems = await db.ShoppingItems
+            .Where(i => i.FridgeId == fridgeId && !i.Checked)
+            .ToListAsync(ct);
+
+        var result = new List<MealPlanGapItem>();
+
+        foreach (var g in gaps)
+        {
+            if (string.IsNullOrWhiteSpace(g.Name)) continue;
+
+            var parsed = IngredientDeductionHelper.Parse(g.Name, g.Quantity, g.Unit);
+            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, products, shoppingItems);
+
+            if (isCovered) continue;
+
+            var finalQtyStr = missingQty?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? g.Quantity;
+            result.Add(new MealPlanGapItem(parsed.CleanName, finalQtyStr, unit ?? g.Unit, g.Category));
+        }
+
+        return result;
     }
 }

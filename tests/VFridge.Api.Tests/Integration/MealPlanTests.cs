@@ -260,6 +260,29 @@ public class MealPlanTests : IAsyncLifetime
         names.Should().BeEquivalentTo(new[] { "pasta", "tomato sauce" });
     }
 
+    [Fact]
+    public async Task ImportGaps_DeductsFridgeProducts()
+    {
+        // Add 200g of flour and 6 eggs to fridge
+        await _client.PostAsJsonAsync("/products", new { name = "Борошно", quantity = 200, unit = "g", category = "pantry" });
+        await _client.PostAsJsonAsync("/products", new { name = "Яйця", quantity = 6, unit = "pcs", category = "dairy" });
+
+        var resp = await _client.PostAsJsonAsync("/meal-plan/import-gaps", new
+        {
+            items = new[]
+            {
+                new { name = "500g Борошно", quantity = (string?)null, unit = (string?)null, category = "pantry" }, // needs 500g, has 200g -> add 300g
+                new { name = "2 яйця",        quantity = (string?)null, unit = (string?)null, category = "dairy" },  // needs 2, has 6 -> skip
+                new { name = "Молоко",        quantity = "1",            unit = "l",           category = "dairy" }   // missing -> add 1l
+            }
+        });
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("created").GetInt32().Should().Be(2); // Flour (300g) + Milk (1l)
+        body.GetProperty("skipped").GetInt32().Should().Be(1); // Eggs
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });
