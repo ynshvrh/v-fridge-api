@@ -56,7 +56,7 @@ public static class CategoryInferrer
         }
 
         // 5. Fruits & berries (яблуко, банан, лимон, лайм, апельсин, мандарин, полуниця, малина, ягоди, груша, виноград, авокадо)
-        if (ContainsAny(name, "яблуко", "apple", "банан", "banana", "лимон", "lemon", "лайм", "lime", "апельсин", "orange",
+        if (ContainsAny(name, "яблук", "apple", "банан", "banana", "лимон", "lemon", "лайм", "lime", "апельсин", "orange",
             "мандарин", "полуниця", "strawberry", "малина", "raspberry", "ягоди", "berries", "груша", "pear", "виноград", "grape", "авокадо", "avocado"))
         {
             return ProductCategories.Fruits;
