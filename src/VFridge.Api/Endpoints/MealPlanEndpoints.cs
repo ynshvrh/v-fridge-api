@@ -513,7 +513,7 @@ public static class MealPlanEndpoints
                 continue;
             }
 
-            var category = ProductCategories.IsValid(item.Category) ? item.Category : ProductCategories.Other;
+            var category = CategoryInferrer.InferCategory(parsed.CleanName, item.Category);
 
             var newShoppingItem = new ShoppingItem
             {
@@ -560,7 +560,8 @@ public static class MealPlanEndpoints
             if (isCovered) continue;
 
             var finalQtyStr = missingQty?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? g.Quantity;
-            result.Add(new MealPlanGapItem(parsed.CleanName, finalQtyStr, unit ?? g.Unit, g.Category));
+            var category = CategoryInferrer.InferCategory(parsed.CleanName, g.Category);
+            result.Add(new MealPlanGapItem(parsed.CleanName, finalQtyStr, unit ?? g.Unit, category));
         }
 
         return result;
