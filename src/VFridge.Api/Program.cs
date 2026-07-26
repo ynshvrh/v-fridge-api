@@ -77,7 +77,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddHealthChecks()
     .AddDbContextCheck<VFridgeDbContext>("database");
 
-// Rate limiting: 5 requests / 60s per user (mirrors the Next.js implementation)
+// Rate limiting: 5 requests / 60s per user for chat, 10 requests / 60s per IP for auth
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -85,7 +85,7 @@ builder.Services.AddRateLimiter(options =>
     {
         context.HttpContext.Response.ContentType = "application/json";
         await context.HttpContext.Response.WriteAsync(
-            "{\"code\":\"RATE_LIMITED\",\"role\":\"assistant\",\"content\":\"Too many requests. Try again in a minute.\"}", ct);
+            "{\"code\":\"RATE_LIMITED\",\"error\":\"Too many requests. Try again later.\"}", ct);
     };
 
     options.AddPolicy("chat", httpContext =>
@@ -100,6 +100,21 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromSeconds(60),
                 SegmentsPerWindow = 6,
                 PermitLimit = 5,
+                QueueLimit = 0,
+                AutoReplenishment = true
+            });
+    });
+
+    options.AddPolicy("auth", httpContext =>
+    {
+        var key = httpContext.Connection.RemoteIpAddress?.ToString() ?? "anon";
+        return RateLimitPartition.GetSlidingWindowLimiter(
+            key,
+            _ => new SlidingWindowRateLimiterOptions
+            {
+                Window = TimeSpan.FromSeconds(60),
+                SegmentsPerWindow = 6,
+                PermitLimit = 10,
                 QueueLimit = 0,
                 AutoReplenishment = true
             });
@@ -144,6 +159,11 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<DailyMaintenanceWo
 
 // JWT bearer auth (public stateless API — no cookies)
 var jwtOpts = builder.Configuration.GetSection(JwtOptions.SectionName).Get<JwtOptions>() ?? new();
+if (builder.Environment.IsProduction() && (string.IsNullOrWhiteSpace(jwtOpts.Secret) || jwtOpts.Secret.All(c => c == 'x')))
+{
+    throw new InvalidOperationException("Jwt:Secret MUST be configured in Production environment! Refusing to start host with default or empty secret.");
+}
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -157,7 +177,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ValidAudience = jwtOpts.Audience,
             IssuerSigningKey = new SymmetricSecurityKey(
                 Encoding.UTF8.GetBytes(string.IsNullOrWhiteSpace(jwtOpts.Secret)
-                    ? new string('x', 32) // dummy placeholder so the host can boot before secret is configured
+                    ? new string('x', 32) // dummy placeholder for Development environment only
                     : jwtOpts.Secret)),
             ClockSkew = TimeSpan.FromSeconds(30)
         };

@@ -167,6 +167,45 @@ public class AuthFlowTests : IAsyncLifetime
         body.GetProperty("code").GetString().Should().Be("BAD_CREDENTIALS");
     }
 
+    [Fact]
+    public async Task Signup_WithPasswordExceeding72Chars_FailsValidation()
+    {
+        var longPassword = new string('a', 73);
+        var response = await _client.PostAsJsonAsync("/auth/signup", new
+        {
+            username = "longpass",
+            email = "longpass@example.com",
+            password = longPassword
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task UploadAvatar_WithInvalidMagicBytes_Returns_INVALID_FILE_HEADER()
+    {
+        await SignupAndVerifyAsync("avatar@example.com", "password123");
+        var login = await _client.PostAsJsonAsync("/auth/login", new
+        {
+            email = "avatar@example.com",
+            password = "password123"
+        });
+        var loginBody = await login.Content.ReadFromJsonAsync<JsonElement>();
+        var access = loginBody.GetProperty("accessToken").GetString()!;
+
+        using var content = new MultipartFormDataContent();
+        var fakeFileContent = new ByteArrayContent(new byte[] { 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C });
+        fakeFileContent.Headers.ContentType = new MediaTypeHeaderValue("image/png");
+        content.Add(fakeFileContent, "file", "fake.png");
+
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", access);
+        var response = await _client.PostAsync("/auth/me/avatar", content);
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("INVALID_FILE_HEADER");
+    }
+
     private async Task SignupAndVerifyAsync(string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new

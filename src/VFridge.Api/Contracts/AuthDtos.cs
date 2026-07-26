@@ -7,7 +7,7 @@ public sealed record SignUpRequest(
     // Username is an optional display name. If empty / whitespace, the server falls back to the
     // local part of the email. MaxLength stays so storage size is bounded.
     [property: MaxLength(50)] string? Username,
-    [property: Required, MinLength(6)] string Password,
+    [property: Required, MinLength(6), MaxLength(72)] string Password,
     // Optional preferred UI language captured at signup so clients don't have to PATCH right
     // after. Falls back to "en" when missing or unsupported. Validated against SupportedLanguages.
     string? PreferredLanguage = null,
@@ -38,7 +38,7 @@ public sealed record UserSummary(
 public sealed record UpdateProfileRequest(
     [property: MaxLength(50)] string? Username = null,
     string? Avatar = null,
-    [property: MinLength(6)] string? NewPassword = null,
+    [property: MinLength(6), MaxLength(72)] string? NewPassword = null,
     string? CurrentPassword = null);
 
 /// <summary>
