@@ -182,6 +182,19 @@ public class AuthFlowTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Signup_WithPasswordShorterThan8Chars_FailsValidation()
+    {
+        var response = await _client.PostAsJsonAsync("/auth/signup", new
+        {
+            username = "shortpass",
+            email = "shortpass@example.com",
+            password = "short" // 5 characters
+        });
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
     public async Task UploadAvatar_WithInvalidMagicBytes_Returns_INVALID_FILE_HEADER()
     {
         await SignupAndVerifyAsync("avatar@example.com", "password123");
