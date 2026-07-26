@@ -174,6 +174,51 @@ public class FridgeTests : IAsyncLifetime
         bobLeave.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
+    [Fact]
+    public async Task AcceptInvite_WithDifferentUserEmail_Returns_INVITE_EMAIL_MISMATCH()
+    {
+        var aliceToken = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", aliceToken);
+
+        var aliceFridges = await _client.GetFromJsonAsync<JsonElement>("/fridges");
+        var aliceFridgeId = aliceFridges[0].GetProperty("id").GetInt32();
+
+        _factory.Emails.Outbox.Clear();
+        var inv = await _client.PostAsJsonAsync($"/fridges/{aliceFridgeId}/invites", new { email = "bob@example.com" });
+        inv.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var letter = _factory.Emails.LastTo("bob@example.com")!;
+        var rawToken = ExtractInviteToken(letter.HtmlBody);
+
+        // Charlie tries to accept Bob's invite!
+        var charlieToken = await BootstrapVerifiedUserAsync("charlie", "charlie@example.com", "secret789");
+        using var charlieClient = _factory.CreateClient();
+        charlieClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", charlieToken);
+
+        var accept = await charlieClient.PostAsJsonAsync("/fridges/accept", new { token = rawToken });
+        accept.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await accept.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("INVITE_EMAIL_MISMATCH");
+    }
+
+    [Fact]
+    public async Task CreateInvite_DuplicatePending_Returns_INVITE_ALREADY_PENDING()
+    {
+        var aliceToken = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", aliceToken);
+
+        var aliceFridges = await _client.GetFromJsonAsync<JsonElement>("/fridges");
+        var aliceFridgeId = aliceFridges[0].GetProperty("id").GetInt32();
+
+        var inv1 = await _client.PostAsJsonAsync($"/fridges/{aliceFridgeId}/invites", new { email = "bob@example.com" });
+        inv1.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        var inv2 = await _client.PostAsJsonAsync($"/fridges/{aliceFridgeId}/invites", new { email = "bob@example.com" });
+        inv2.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await inv2.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("INVITE_ALREADY_PENDING");
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password, bool createFridge = true)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });

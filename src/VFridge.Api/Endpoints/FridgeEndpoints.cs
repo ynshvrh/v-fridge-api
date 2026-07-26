@@ -190,11 +190,22 @@ public static class FridgeEndpoints
             return Results.Json(new { code = "NOT_FRIDGE_OWNER", error = "Only the owner can invite members" },
                 statusCode: StatusCodes.Status403Forbidden);
 
+        var targetEmail = req.Email.Trim().ToLowerInvariant();
+        var existingInvite = await db.FridgeInvites.FirstOrDefaultAsync(i =>
+            i.FridgeId == fridge.Id &&
+            i.Email == targetEmail &&
+            i.AcceptedAt == null &&
+            i.ExpiresAt > DateTime.UtcNow, ct);
+        if (existingInvite is not null)
+        {
+            return Results.BadRequest(new { code = "INVITE_ALREADY_PENDING", error = "An active invite for this email address already exists" });
+        }
+
         var raw = tokens.GenerateRefreshToken();
         var invite = new FridgeInvite
         {
             FridgeId = fridge.Id,
-            Email = req.Email.Trim().ToLowerInvariant(),
+            Email = targetEmail,
             TokenHash = tokens.Hash(raw),
             ExpiresAt = DateTime.UtcNow.Add(InviteWindow)
         };
@@ -240,6 +251,9 @@ public static class FridgeEndpoints
         if (me.UserId is not int uid) return Results.Unauthorized();
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
+        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == uid, ct);
+        if (user is null) return Results.Unauthorized();
+
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == uid, ct);
         if (!verified)
             return Results.Json(new { code = "EMAIL_NOT_VERIFIED", error = "Verify your email before joining a fridge" },
@@ -253,6 +267,11 @@ public static class FridgeEndpoints
         if (invite is null) return Results.BadRequest(new { code = "INVITE_NOT_FOUND", error = "Invite not found" });
         if (invite.AcceptedAt is not null) return Results.BadRequest(new { code = "INVITE_USED", error = "Invite already accepted" });
         if (invite.ExpiresAt < DateTime.UtcNow) return Results.BadRequest(new { code = "INVITE_EXPIRED", error = "Invite has expired" });
+
+        if (!string.Equals(invite.Email, user.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest(new { code = "INVITE_EMAIL_MISMATCH", error = "This invite was issued to a different email address" });
+        }
 
         var alreadyMember = await db.FridgeMembers.AnyAsync(m => m.FridgeId == invite.FridgeId && m.UserId == uid, ct);
         if (!alreadyMember)
