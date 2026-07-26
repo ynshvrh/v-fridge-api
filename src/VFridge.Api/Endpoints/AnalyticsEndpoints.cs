@@ -3,6 +3,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
 namespace VFridge.Api.Endpoints;
 
@@ -14,7 +15,7 @@ public static class AnalyticsEndpoints
 
         group.MapGet("/", GetSummaryAsync)
             .WithName("GetAnalyticsSummary")
-            .WithSummary("Dashboard analytics for the caller")
+            .WithSummary("Dashboard analytics for the active fridge")
             .WithDescription("Aggregates the consumption_log over the last 30 days: most-wasted items, fastest-consumed items, and a weekly count of consumed-vs-wasted-vs-expired rows for the last 8 weeks.")
             .Produces<AnalyticsSummary>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status401Unauthorized);
@@ -22,16 +23,18 @@ public static class AnalyticsEndpoints
         return app;
     }
 
-    private static async Task<IResult> GetSummaryAsync(VFridgeDbContext db, ICurrentUser me, CancellationToken ct)
+    private static async Task<IResult> GetSummaryAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
     {
-        if (me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await fridgeContext.ResolveAsync(ct);
+        if (resolved is null) return Results.Unauthorized();
 
+        var fridgeId = resolved.Value.FridgeId;
         var now = DateTime.UtcNow;
         var thirtyDaysAgo = now.AddDays(-30);
         var eightWeeksAgo = now.AddDays(-56);
 
         var wastedRows = await db.ConsumptionLogs
-            .Where(c => c.UserId == uid
+            .Where(c => c.FridgeId == fridgeId
                         && c.ConsumedAt >= thirtyDaysAgo
                         && (c.Status == ConsumptionStatus.Wasted || c.Status == ConsumptionStatus.Expired))
             .Select(c => new { c.ProductName, c.Quantity, c.Category })
@@ -50,7 +53,7 @@ public static class AnalyticsEndpoints
             .ToList();
 
         var fastestConsumed = await db.ConsumptionLogs
-            .Where(c => c.UserId == uid
+            .Where(c => c.FridgeId == fridgeId
                         && c.Status == ConsumptionStatus.Consumed
                         && c.ConsumedAt >= thirtyDaysAgo
                         && c.AgeDays != null)
@@ -61,7 +64,7 @@ public static class AnalyticsEndpoints
             .ToListAsync(ct);
 
         var weekly = await db.ConsumptionLogs
-            .Where(c => c.UserId == uid && c.ConsumedAt >= eightWeeksAgo)
+            .Where(c => c.FridgeId == fridgeId && c.ConsumedAt >= eightWeeksAgo)
             .ToListAsync(ct);
 
         // Bucket into ISO weeks client-side (after the round-trip) so EF doesn't have to translate

@@ -232,6 +232,7 @@ public static class ProductsEndpoints
         return new ConsumptionLog
         {
             UserId = entity.OwnerId,
+            FridgeId = entity.FridgeId,
             ProductName = entity.Name,
             Quantity = entity.Quantity,
             Unit = entity.Unit,

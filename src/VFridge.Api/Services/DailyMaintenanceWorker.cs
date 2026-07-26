@@ -59,31 +59,48 @@ public sealed class DailyMaintenanceWorker(
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         var threshold = today.AddDays(2);
 
-        var groups = await db.Products
+        var expiringProducts = await db.Products
             .Where(p => p.ExpiryDate != null && p.ExpiryDate <= threshold)
             .OrderBy(p => p.ExpiryDate)
             .Select(p => new
             {
+                p.FridgeId,
+                FridgeName = p.Fridge.Name,
                 p.Name,
                 p.Quantity,
                 p.Unit,
-                p.ExpiryDate,
-                Email = p.Owner.Email,
-                Username = p.Owner.Username
+                p.ExpiryDate
             })
             .ToListAsync(ct);
 
-        var byUser = groups
-            .GroupBy(g => g.Email)
-            .Where(g => !string.IsNullOrWhiteSpace(g.Key))
+        if (expiringProducts.Count == 0) return;
+
+        var fridgeIds = expiringProducts.Select(p => p.FridgeId).Distinct().ToList();
+        var members = await db.FridgeMembers
+            .Where(m => fridgeIds.Contains(m.FridgeId))
+            .Select(m => new { m.FridgeId, m.User.Email, m.User.Username })
+            .ToListAsync(ct);
+
+        var userMembers = members
+            .Where(m => !string.IsNullOrWhiteSpace(m.Email))
+            .GroupBy(m => m.Email)
             .ToList();
 
-        foreach (var userGroup in byUser)
+        foreach (var userGroup in userMembers)
         {
-            var first = userGroup.First();
-            var items = string.Join("",
-                userGroup.Select(g =>
-                    $"<li><strong>{System.Net.WebUtility.HtmlEncode(g.Name)}</strong> — {g.Quantity} {g.Unit}, " +
+            var emailAddress = userGroup.Key;
+            var username = userGroup.First().Username;
+            var userFridgeIds = userGroup.Select(m => m.FridgeId).ToHashSet();
+
+            var userExpiringProducts = expiringProducts
+                .Where(p => userFridgeIds.Contains(p.FridgeId))
+                .ToList();
+
+            if (userExpiringProducts.Count == 0) continue;
+
+            var itemsHtml = string.Join("",
+                userExpiringProducts.Select(g =>
+                    $"<li><strong>{System.Net.WebUtility.HtmlEncode(g.Name)}</strong> ({System.Net.WebUtility.HtmlEncode(g.FridgeName)}) — {g.Quantity} {g.Unit}, " +
                     (g.ExpiryDate is { } d
                         ? d < today ? $"<span style=\"color:#B23A30;\">expired on {d:yyyy-MM-dd}</span>"
                                     : $"expires {d:yyyy-MM-dd}"
@@ -93,8 +110,8 @@ public sealed class DailyMaintenanceWorker(
             var html = $"""
                 <div style="font-family: system-ui, sans-serif; max-width:480px; margin:auto;">
                   <h2 style="color:#8C5383;">Items expiring soon</h2>
-                  <p>Hi <strong>{System.Net.WebUtility.HtmlEncode(first.Username)}</strong>, here is what to use up first:</p>
-                  <ul style="line-height:1.6;">{items}</ul>
+                  <p>Hi <strong>{System.Net.WebUtility.HtmlEncode(username)}</strong>, here is what to use up first:</p>
+                  <ul style="line-height:1.6;">{itemsHtml}</ul>
                   <p style="color:#666;font-size:13px;">
                     Open V-Fridge to update quantities or remove items: {frontend.Value.BaseUrl}
                   </p>
@@ -103,11 +120,11 @@ public sealed class DailyMaintenanceWorker(
 
             try
             {
-                await email.SendAsync(userGroup.Key, "V-Fridge — items expiring soon", html, ct);
+                await email.SendAsync(emailAddress, "V-Fridge — items expiring soon", html, ct);
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to send expiry digest to {Email}", userGroup.Key);
+                logger.LogError(ex, "Failed to send expiry digest to {Email}", emailAddress);
             }
         }
     }

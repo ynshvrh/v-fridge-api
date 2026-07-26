@@ -6,6 +6,7 @@ public sealed class ConsumptionLog
 {
     public long Id { get; set; }
     public int UserId { get; set; }
+    public int FridgeId { get; set; }
     public string ProductName { get; set; } = null!;
     public decimal? Quantity { get; set; }
     public string? Unit { get; set; }
