@@ -45,9 +45,10 @@ public static class ProductsEndpoints
 
         group.MapDelete("/", DeleteAllAsync)
             .WithName("DeleteAllProducts")
-            .WithSummary("Empty the active fridge")
+            .WithSummary("Empty the active fridge (Owner only)")
             .Produces(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized);
+            .Produces(StatusCodes.Status401Unauthorized)
+            .Produces<ApiError>(StatusCodes.Status403Forbidden);
 
         return app;
     }
@@ -213,6 +214,13 @@ public static class ProductsEndpoints
     {
         var resolved = await fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
+
+        if (!string.Equals(resolved.Value.Role, "Owner", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Json(
+                new { code = "NOT_FRIDGE_OWNER", error = "Only the fridge owner can empty the entire fridge" },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
 
         var owned = await db.Products.Where(p => p.FridgeId == resolved.Value.FridgeId).ToListAsync(ct);
         foreach (var p in owned)
