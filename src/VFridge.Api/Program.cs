@@ -132,6 +132,12 @@ builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService
 {
     client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
 });
+var vChefBaseUrl = builder.Configuration["VChef:BaseUrl"] ?? "https://v-chef.onrender.com";
+builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
+{
+    client.BaseAddress = new Uri(vChefBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(40);
+});
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
