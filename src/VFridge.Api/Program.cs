@@ -138,6 +138,7 @@ builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
     client.BaseAddress = new Uri(vChefBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(40);
 });
+builder.Services.AddHostedService<VChefWarmupService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
