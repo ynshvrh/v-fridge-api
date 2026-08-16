@@ -26,11 +26,9 @@ WORKDIR /app
 # The .env / Render env vars can override this — the default just keeps Kestrel listening
 # on a sensible interface if nothing is configured.
 ENV ASPNETCORE_URLS=http://0.0.0.0:10000
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
 EXPOSE 10000
 
 COPY --from=build /app/publish ./
-
-# Migrations live in the published output (they're embedded via the csproj's content rules).
-# SqlMigrator picks them up at startup from ContentRoot.
 
 ENTRYPOINT ["dotnet", "VFridge.Api.dll"]

@@ -22,6 +22,9 @@ DotNetEnv.Env.TraversePath().NoClobber().Load();
 // Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
+// Prevent hitting Linux container inotify instance limits (128) on shared cloud hosts (Render)
+Environment.SetEnvironmentVariable("DOTNET_USE_POLLING_FILE_WATCHER", "1");
+
 var builder = WebApplication.CreateBuilder(args);
 // Default config sources (appsettings, env-specific, user-secrets in Dev, env vars, cmd line)
 // are already wired up by CreateBuilder. Don't re-add them or they'll override later
