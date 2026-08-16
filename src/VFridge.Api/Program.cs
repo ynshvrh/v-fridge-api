@@ -18,9 +18,8 @@ using VFridge.Api.Services;
 // tests in CI/local) win over the .env file.
 DotNetEnv.Env.TraversePath().NoClobber().Load();
 
-// The schema (see Migrations/000_initial.sql + 001_auth.sql) uses `timestamp without time
-// zone`. Opt back into the legacy Npgsql DateTime behaviour so DateTime.UtcNow can be stored
-// without manual Kind juggling.
+// The database schema uses `timestamp without time zone`. Opt back into legacy
+// Npgsql DateTime behaviour so DateTime.UtcNow can be stored without manual Kind juggling.
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -133,16 +132,31 @@ builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService
     client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
 });
 var vChefBaseUrl = builder.Configuration["VChef:BaseUrl"] ?? "https://v-chef.onrender.com";
+var vChefGrpcUrl = builder.Configuration["VChef:GrpcUrl"] ?? "http://localhost:50051";
 var vChefInternalToken = builder.Configuration["VChef:InternalToken"] ?? builder.Configuration["VCHEF_INTERNAL_TOKEN"];
-builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
+var useGrpc = string.Equals(builder.Configuration["VChef:UseGrpc"], "true", StringComparison.OrdinalIgnoreCase);
+
+builder.Services.AddGrpcClient<VFridge.Api.Protos.V1.ChefService.ChefServiceClient>(options =>
 {
-    client.BaseAddress = new Uri(vChefBaseUrl);
-    client.Timeout = TimeSpan.FromSeconds(40);
-    if (!string.IsNullOrWhiteSpace(vChefInternalToken))
-    {
-        client.DefaultRequestHeaders.Add("X-Internal-Token", vChefInternalToken);
-    }
+    options.Address = new Uri(vChefGrpcUrl);
 });
+
+if (useGrpc)
+{
+    builder.Services.AddScoped<IVChefClient, VChefGrpcClient>();
+}
+else
+{
+    builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
+    {
+        client.BaseAddress = new Uri(vChefBaseUrl);
+        client.Timeout = TimeSpan.FromSeconds(40);
+        if (!string.IsNullOrWhiteSpace(vChefInternalToken))
+        {
+            client.DefaultRequestHeaders.Add("X-Internal-Token", vChefInternalToken);
+        }
+    });
+}
 builder.Services.AddHostedService<VChefWarmupService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
