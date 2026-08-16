@@ -1,34 +1,37 @@
 # V-Fridge API
 
-ASP.NET Core Minimal API (.NET 10) for **V-Fridge** — the food management system with AI-chef suggestions and V-Chef microservice integration.
+ASP.NET Core Minimal API (.NET 10) for **V-Fridge** — food inventory management, smart meal planning, calorie and macro nutrition tracking, shopping list auto-replenishment, shared fridges, and AI Chef integration via REST and gRPC.
 
-This service replaces the legacy in-process Next.js API routes and exposes a typed REST surface for products, fridges, shopping list, meal planning, nutrition tracking, saved recipes, chat, and authentication (JWT bearer + Google OAuth + email verification).
+This service exposes a typed REST surface for web and mobile clients, backed by PostgreSQL via Entity Framework Core 10 and integrated with the Go-based V-Chef microservice.
 
 ---
 
-## Tech stack
+## Tech Stack
 
 * **Runtime:** .NET 10, ASP.NET Core Minimal API
-* **Microservices:** V-Chef Integration (`IVChefClient`, `VChefWarmupService`)
-* **ORM:** EF Core 10 (Npgsql) — schema owned by this repo via raw SQL migrations (`Migrations/*.sql`)
-* **Auth:** Stateless JWT bearer + opaque refresh tokens (returned in JSON body, **no cookies** — public-API friendly), Google ID-token sign-in, email verification
-* **Mail:** MailKit SMTP / Resend API
-* **AI:** OpenRouter (OpenAI-compatible chat completions) + V-Chef recipe generator service
-* **Docs:** Built-in OpenAPI at `/openapi/v1.json`
-* **Health:** `/health` (DbContext check)
+* **Database & ORM:** PostgreSQL via Entity Framework Core 10 (Npgsql provider) with EF Core Migrations
+* **Microservices Integration:** V-Chef Go microservice client (`IVChefClient`) supporting both HTTP REST (`VChefClient`) and gRPC (`VChefGrpcClient` via `chef.proto`) with internal token authentication and non-blocking warmup (`VChefWarmupService`)
+* **Background Workers:** `DailyMaintenanceWorker` (daily 09:00 Europe/Kyiv cron for product expiry digests and unverified account cleanup) and `VChefWarmupService`
+* **Authentication & Security:** Stateless JWT Bearer tokens + opaque refresh token rotation (returned in JSON body, no cookie dependence), Google OAuth ID token validation, email confirmation, rate limiting (Sliding Window)
+* **Email Delivery:** SMTP (MailKit) or Resend API (HTTPS-based for cloud hosts blocking outbound SMTP)
+* **AI Engine:** OpenRouter API (OpenAI-compatible chat completions with multi-model fallback) + V-Chef recipe generator
+* **API Documentation:** Native .NET 10 OpenAPI document at `/openapi/v1.json`
+* **Health Checks:** `/health` (DbContext & database connectivity check)
+* **Testing:** xUnit, `Microsoft.AspNetCore.Mvc.Testing` (`WebApplicationFactory`), Testcontainers PostgreSQL
 
 ---
 
-## Project layout
+## Project Structure
 
 ```
 src/
 └── VFridge.Api/
-    ├── Configuration/       # Strongly-typed options (Jwt, Email, Cors, OpenRouter, VChef, …)
-    ├── Contracts/           # DTOs (Auth, Product, Fridge, Shopping, MealPlan, SavedRecipes, VChef, Analytics, …)
-    ├── Data/                # EF Core DbContext + entities
-    │   └── Entities/
-    ├── Endpoints/           # Minimal API Endpoint modules (9 modules)
+    ├── Auth/                # Current user accessor (ICurrentUser, HttpContextCurrentUser)
+    ├── Configuration/       # Strongly-typed configuration options (Jwt, Email, Cors, OpenRouter, Google, Frontend)
+    ├── Contracts/           # DTOs across all 9 modules (Auth, Products, Fridges, Shopping, MealPlan, Nutrition, Analytics, Chat, VChef)
+    ├── Data/                # EF Core DbContext, entity definitions, and model snapshot
+    │   └── Entities/        # User, Product, Fridge, ShoppingItem, ConsumptionLog, MealPlan, SavedRecipe, NutritionLog, etc.
+    ├── Endpoints/           # Minimal API route modules
     │   ├── AnalyticsEndpoints.cs
     │   ├── AuthEndpoints.cs
     │   ├── ChatEndpoints.cs
@@ -38,70 +41,265 @@ src/
     │   ├── ProductsEndpoints.cs
     │   ├── SavedRecipeEndpoints.cs
     │   └── ShoppingEndpoints.cs
-    ├── Infrastructure/      # SqlMigrator runner
-    ├── Migrations/          # Raw SQL schema migrations (000_*.sql to 015_*.sql)
-    ├── Services/            # Business services, OpenRouter AI, VChefClient & Warmup, Email, Auth
-    ├── Program.cs           # App composition root
-    ├── appsettings.json     # Defaults (no secrets)
+    ├── Infrastructure/      # PostgreSQL connection string normalizer
+    ├── Migrations/          # EF Core Migrations (InitialCreate, etc.)
+    ├── Protos/              # Protocol Buffers schema (chef.proto) for gRPC communication
+    ├── Services/            # Business services (Auth, AI chat, meal planner, email sender, VChef clients, daily worker)
+    ├── Program.cs           # Application composition root, DI, middleware, and route registration
+    ├── appsettings.json     # Configuration schema and defaults (no secrets)
     └── Properties/
         └── launchSettings.json
+tests/
+└── VFridge.Api.Tests/       # Unit and integration test suites
 ```
 
 ---
 
 ## V-Chef Microservice Integration
 
-`v-fridge-api` integrates with the external **V-Chef** microservice to offload and accelerate AI recipe generation and meal planning workflows:
+`v-fridge-api` integrates with the external **V-Chef** microservice to offload and accelerate AI recipe generation and meal planning workflows.
 
-* **`IVChefClient` / `VChefClient`**: Typed HTTP client configured via `VChef:BaseUrl` (default: `https://v-chef.onrender.com`). Responsible for sending structured requests (`POST /api/v1/recipes/generate`) with user inventory and dietary preferences using `VChefGenerateRecipeRequest` and parsing responses (`VChefRecipeResponse`).
-* **`VChefWarmupService`**: A `BackgroundService` hosted inside `VFridge.Api`. Upon web host startup, it waits 1 second and executes a non-blocking background ping (`GET /health`) against V-Chef. This ensures cold-started microservice containers (e.g. Render free tier) are pre-warmed before incoming user requests.
-* **DTO Contracts**: Defined in `Contracts/VChefDtos.cs` for clean microservice boundary isolation.
+### Integration Modes
+
+The API supports two communication protocols with V-Chef, switchable via configuration (`VChef:UseGrpc`):
+
+1. **HTTP REST (`VChefClient`):**
+   * Configured via `VChef:BaseUrl` (default: `https://v-chef.onrender.com`).
+   * Sends structured JSON requests (`POST /api/v1/recipes/generate`) with inventory and dietary preferences.
+   * Includes the `X-Internal-Token` security header for service-to-service authentication.
+
+2. **gRPC (`VChefGrpcClient`):**
+   * Configured via `VChef:GrpcUrl` (default: `http://localhost:50051`).
+   * Uses strongly-typed Protocol Buffers generated from `Protos/chef.proto`.
+   * Attaches internal token authentication via gRPC call metadata interceptor.
+
+### Warmup Service (`VChefWarmupService`)
+
+A hosted `BackgroundService` that triggers a non-blocking health check (`GET /health`) against V-Chef on application startup. This pre-warms free-tier cloud instances (e.g. Render) before incoming user traffic arrives.
 
 ---
 
 ## Configuration
 
-All settings live under sections in `appsettings.json` and can be overridden via:
+All configuration is mapped from `appsettings.json`, environment variables, or `.env` files (loaded automatically at startup via `DotNetEnv`).
 
-1. `appsettings.Development.json` (committed, no secrets)
-2. **User secrets** in Development (`dotnet user-secrets`)
-3. **A `.env` file** in the repo root (gitignored, auto-loaded via `DotNetEnv`) — see `.env.example`. Recommended for local.
-4. Environment variables (`Jwt__Secret`, `ConnectionStrings__Default`, …) — for production
-5. The libpq URI form `DATABASE_URL=postgresql://…` is auto-normalised at startup
+### Environment Variables & Keys
 
-### Required keys
+| Key | Environment Variable | Purpose | Default |
+| --- | --- | --- | --- |
+| `ConnectionStrings:Default` | `DATABASE_URL` / `ConnectionStrings__Default` | PostgreSQL connection string or libpq URI | Required |
+| `Jwt:Secret` | `Jwt__Secret` | Signing key for HMAC-SHA256 (>= 32 chars) | Required in Prod |
+| `Jwt:Issuer` | `Jwt__Issuer` | JWT issuer claim | `v-fridge-api` |
+| `Jwt:Audience` | `Jwt__Audience` | JWT audience claim | `v-fridge-app` |
+| `Email:Provider` | `Email__Provider` | Email provider: `smtp` or `resend` | `smtp` |
+| `Email:SmtpHost` | `Email__SmtpHost` | SMTP server host | `""` |
+| `Email:SmtpPort` | `Email__SmtpPort` | SMTP port (e.g. 587) | `587` |
+| `Email:Username` | `Email__Username` | SMTP username | `""` |
+| `Email:Password` | `Email__Password` | SMTP password / App password | `""` |
+| `Email:ResendApiKey` | `Email__ResendApiKey` | API key when provider is `resend` | `""` |
+| `Email:FromAddress` | `Email__FromAddress` | Sender email address | `""` |
+| `Google:ClientId` | `Google__ClientId` | Google OAuth Client ID | `""` |
+| `Google:ClientSecret` | `Google__ClientSecret` | Google OAuth Client Secret | `""` |
+| `OpenRouter:ApiKey` | `OpenRouter__ApiKey` | API key for OpenRouter AI completions | `""` |
+| `OpenRouter:Models` | `OpenRouter__Models` | Ordered model fallback pool | `["google/gemma-4-31b-it:free", ...]` |
+| `Cors:AllowedOrigins` | `Cors__AllowedOrigins` | Allowed origins array for CORS | `["http://localhost:3000", ...]` |
+| `Cors:AllowAnyOrigin` | `Cors__AllowAnyOrigin` | Allow wildcard origin (disables credentials) | `false` |
+| `Frontend:BaseUrl` | `Frontend__BaseUrl` | Base URL for email verification redirects | `http://localhost:3000` |
+| `VChef:BaseUrl` | `VChef__BaseUrl` | Base URL for V-Chef REST API | `https://v-chef.onrender.com` |
+| `VChef:GrpcUrl` | `VChef__GrpcUrl` | Address for V-Chef gRPC endpoint | `http://localhost:50051` |
+| `VChef:UseGrpc` | `VChef__UseGrpc` | Toggle gRPC client instead of REST | `false` |
+| `VChef:InternalToken` | `VCHEF_INTERNAL_TOKEN` / `VChef__InternalToken` | Shared-secret token for V-Chef API | `""` |
 
-| Section / key                              | Notes                                          |
-| ------------------------------------------ | ---------------------------------------------- |
-| `ConnectionStrings:Default`                | Npgsql or `postgresql://…` URI                 |
-| `Jwt:Secret`                               | ≥32 char random (HS256 signing key)            |
-| `Email:SmtpHost` / `Username` / `Password` | MailKit SMTP (e.g. Gmail app password)         |
-| `Google:ClientId` / `ClientSecret`         | Google OAuth credentials                       |
-| `OpenRouter:ApiKey`                        | OpenRouter API key (https://openrouter.ai)     |
-| `OpenRouter:Model`                         | Single model id; used when `Models` is empty (e.g. `google/gemini-2.5-flash`) |
-| `OpenRouter:Models`                        | Ordered model pool tried best-first; falls through on 429/402/5xx/empty |
-| `OpenRouter:MaxTokens`                     | Per-call generation cap (default 2048)         |
-| `Frontend:BaseUrl`                         | Used in email verification links + CORS origin |
-| `Cors:AllowedOrigins`                      | Array of allowed front-end origins             |
-| `VChef:BaseUrl`                            | Base URL for V-Chef microservice (`https://v-chef.onrender.com`) |
+---
 
-### Quick local setup
+## API Endpoints
+
+The API listens on `http://localhost:5080` by default.
+
+### 1. Authentication (`/auth`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `POST` | `/auth/signup` | Public | Register new user account; sends verification email |
+| `POST` | `/auth/login` | Public | Authenticate with email & password; returns access & refresh tokens |
+| `POST` | `/auth/refresh` | Public | Exchange valid refresh token for new access & refresh token pair |
+| `POST` | `/auth/logout` | Public | Revoke refresh token |
+| `GET` | `/auth/verify-email?token=` | Public | Verify email via browser link; redirects to frontend SPA |
+| `POST` | `/auth/verify-email` | Public | Verify email via JSON API body |
+| `POST` | `/auth/resend-verification` | Public | Resend verification email |
+| `POST` | `/auth/google` | Public | Sign in / register with Google OAuth ID token |
+| `GET` | `/auth/me` | Bearer | Get current authenticated user profile & preferences |
+| `PATCH` | `/auth/me` | Bearer | Update user display name and profile settings |
+| `PATCH` | `/auth/me/preferences` | Bearer | Update user cuisine, language, and dietary preferences |
+| `POST` | `/auth/me/avatar` | Bearer | Upload user profile avatar image |
+
+### 2. Shared Fridges (`/fridges`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/fridges` | Bearer | List all fridges owned by or shared with the caller |
+| `POST` | `/fridges` | Bearer | Create a new shared fridge |
+| `PATCH` | `/fridges/{id}` | Bearer | Rename a fridge (owner only) |
+| `DELETE` | `/fridges/{id}` | Bearer | Delete a fridge and its contents (owner only) |
+| `DELETE` | `/fridges/{id}/members/me` | Bearer | Leave a shared fridge |
+| `POST` | `/fridges/{id}/invites` | Bearer | Invite another user by email (generates 7-day token) |
+| `POST` | `/fridges/accept` | Bearer | Accept an invitation token to join a fridge |
+
+### 3. Products Inventory (`/products`)
+
+Supports multi-fridge scoping via the `X-Fridge-Id` header (defaults to user's primary fridge).
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/products` | Bearer | List active products sorted by expiry date |
+| `POST` | `/products` | Bearer | Add a product with category, quantity, unit, and expiry date |
+| `PATCH` | `/products/{id}` | Bearer | Update product details, category, or remaining quantity |
+| `DELETE` | `/products/{id}` | Bearer | Remove a product (records consumption or waste log) |
+| `DELETE` | `/products` | Bearer | Clear all products from current fridge |
+
+### 4. Shopping List (`/shopping`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/shopping` | Bearer | List items on shopping list for the active fridge |
+| `POST` | `/shopping` | Bearer | Add an item to the shopping list |
+| `PATCH` | `/shopping/{id}` | Bearer | Update item details or toggle checked state |
+| `DELETE` | `/shopping/{id}` | Bearer | Delete item from shopping list |
+| `POST` | `/shopping/{id}/purchase` | Bearer | Move purchased item from shopping list into fridge inventory |
+
+### 5. Meal Planner (`/meal-plan`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/meal-plan` | Bearer | Retrieve the active weekly meal plan |
+| `POST` | `/meal-plan` | Bearer | Generate a new weekly meal plan using AI and current inventory |
+| `POST` | `/meal-plan/regenerate-day` | Bearer | Regenerate meals for a specific single day of the week |
+| `POST` | `/meal-plan/regenerate-meal` | Bearer | Regenerate a single specific meal |
+| `POST` | `/meal-plan/recipe` | Bearer | Retrieve full cooking instructions for a planned meal |
+| `POST` | `/meal-plan/import-gaps` | Bearer | Bulk-import missing ingredients into the shopping list |
+
+### 6. Saved Recipes (`/saved-recipes`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/saved-recipes` | Bearer | List bookmarked recipes with nutrition metadata |
+| `POST` | `/saved-recipes` | Bearer | Save a recipe to user favorites |
+| `DELETE` | `/saved-recipes/{id}` | Bearer | Remove a recipe from saved favorites |
+
+### 7. Nutrition Tracker (`/nutrition`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/nutrition/daily` | Bearer | Retrieve daily logs and progress towards calorie/macro targets |
+| `POST` | `/nutrition/log` | Bearer | Log a consumed meal entry |
+| `PUT` | `/nutrition/log/{id}` | Bearer | Update an existing nutrition log entry |
+| `DELETE` | `/nutrition/log/{id}` | Bearer | Delete a nutrition log entry |
+| `POST` | `/nutrition/targets` | Bearer | Update daily calorie, protein, fat, and carbs targets |
+
+### 8. Analytics (`/analytics`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/analytics` | Bearer | Aggregated summary of consumed vs wasted items and weekly trends |
+
+### 9. AI Chef Chat (`/chat`)
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/chat` | Bearer | Retrieve chat history for the last 24 hours (up to 20 messages) |
+| `POST` | `/chat` | Bearer | Send a message to AI Chef (rate-limited: 5 requests / 60 seconds) |
+| `DELETE` | `/chat` | Bearer | Clear chat message history |
+
+### 10. Metadata & Health
+
+| Method | Path | Auth | Description |
+| --- | --- | --- | --- |
+| `GET` | `/` | Public | Service metadata and version |
+| `GET` | `/health` | Public | Health check validating database connectivity |
+| `GET` | `/openapi/v1.json` | Public | OpenAPI 3 document (.NET 10 built-in) |
+
+---
+
+## Error Handling & Envelope
+
+All non-validation errors return a standard JSON envelope:
+
+```json
+{
+  "code": "EMAIL_NOT_VERIFIED",
+  "error": "Email is not verified yet. Check your inbox or request a new email."
+}
+```
+
+### Common Error Codes
+
+| Code | Status | Meaning |
+| --- | --- | --- |
+| `EMAIL_EXISTS` | 409 Conflict | Email address is already registered |
+| `EMAIL_NOT_VERIFIED` | 403 Forbidden | Account exists but email is unconfirmed |
+| `BAD_CREDENTIALS` | 401 Unauthorized | Incorrect email or password |
+| `REFRESH_INVALID` | 401 Unauthorized | Refresh token invalid, expired, or revoked |
+| `TOKEN_EXPIRED` | 400 Bad Request | Verification or invite token has expired |
+| `TOKEN_NOT_FOUND` | 404 Not Found | Verification or invite token does not exist |
+| `PRODUCT_NOT_FOUND` | 404 Not Found | Product does not exist or caller lacks access |
+| `FRIDGE_NOT_FOUND` | 404 Not Found | Fridge does not exist or caller lacks membership |
+| `FORBIDDEN` | 403 Forbidden | Caller lacks required owner/member permissions |
+| `RATE_LIMITED` | 429 Too Many Requests | Rate limit exceeded for chat (5/60s) or auth (10/60s) |
+
+---
+
+## Database and Migrations
+
+The database is managed with Entity Framework Core 10 migrations located in `src/VFridge.Api/Migrations/`.
+
+### Automatic Application
+
+On application startup, `Program.cs` automatically executes pending migrations using:
+
+```csharp
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<VFridgeDbContext>();
+    await db.Database.MigrateAsync();
+}
+```
+
+### Managing Migrations CLI
 
 ```bash
-cd src/VFridge.Api
-dotnet user-secrets set "ConnectionStrings:Default" "Host=…;Database=…;Username=…;Password=…;SslMode=Require"
-dotnet user-secrets set "Jwt:Secret" "$(openssl rand -base64 48)"
-dotnet user-secrets set "OpenRouter:ApiKey" "sk-or-v1-…"
-dotnet user-secrets set "Email:Username" "…"
-dotnet user-secrets set "Email:Password" "…"
-dotnet user-secrets set "Google:ClientId" "…"
-dotnet user-secrets set "Google:ClientSecret" "…"
-dotnet user-secrets set "VChef:BaseUrl" "https://v-chef.onrender.com"
+# Add a new migration
+dotnet ef migrations add <MigrationName> --project src/VFridge.Api
+
+# Update local database manually
+dotnet ef database update --project src/VFridge.Api
+
+# Generate SQL script for production deployment
+dotnet ef migrations script --project src/VFridge.Api -o migration.sql
 ```
 
 ---
 
-## Run
+## Running Locally
+
+### 1. Requirements
+
+* .NET 10 SDK
+* PostgreSQL 15+ (or Docker)
+
+### 2. Configure Environment
+
+Create a `.env` file in the repository root or use user-secrets:
+
+```bash
+cd src/VFridge.Api
+dotnet user-secrets set "ConnectionStrings:Default" "Host=localhost;Port=5432;Database=vfridge;Username=postgres;Password=postgres"
+dotnet user-secrets set "Jwt:Secret" "super-secret-key-at-least-32-characters-long"
+dotnet user-secrets set "OpenRouter:ApiKey" "sk-or-v1-..."
+dotnet user-secrets set "VChef:InternalToken" "internal-service-secret"
+dotnet user-secrets set "VChef:BaseUrl" "http://localhost:8085"
+```
+
+### 3. Build & Run
 
 ```bash
 dotnet restore
@@ -109,183 +307,16 @@ dotnet build
 dotnet run --project src/VFridge.Api
 ```
 
-Defaults:
-
-| Endpoint                            | Purpose                                       |
-| ----------------------------------- | --------------------------------------------- |
-| `GET /`                             | Service metadata                              |
-| `GET /health`                       | Liveness + DB check                           |
-| `GET /openapi/v1.json`              | OpenAPI 3 document                            |
-| **Auth** (Token optional/required)  |                                               |
-| `POST /auth/signup`                 | Create account + send verification email      |
-| `POST /auth/login`                  | Email + password → JWT pair                   |
-| `POST /auth/refresh`                | Rotate refresh token → new JWT pair           |
-| `POST /auth/logout`                 | Revoke refresh token                          |
-| `GET  /auth/verify-email?token=`    | Confirm email (HTML redirect to SPA)          |
-| `POST /auth/verify-email`           | Confirm email (JSON API response)             |
-| `POST /auth/resend-verification`    | Resend confirmation email                     |
-| `POST /auth/google`                 | Sign in with a Google ID token                |
-| `GET  /auth/me`                     | Current user info & settings                  |
-| `PATCH /auth/me`                    | Update display name / profile                 |
-| `PATCH /auth/me/preferences`        | Update language, cuisine, dietary preferences |
-| `POST /auth/me/avatar`              | Upload user profile avatar image              |
-| **Fridges** (Bearer required)       |                                               |
-| `GET  /fridges`                     | List user's shared fridges                    |
-| `POST /fridges`                     | Create a new shared fridge                    |
-| `PATCH /fridges/{id}`               | Rename a fridge                               |
-| `DELETE /fridges/{id}`              | Delete a fridge (owner only)                  |
-| `DELETE /fridges/{id}/members/me`   | Leave a shared fridge                         |
-| `POST /fridges/{id}/invites`        | Invite a user to a shared fridge              |
-| `POST /fridges/accept`              | Accept a fridge invitation                    |
-| **Products** (Bearer required)      |                                               |
-| `GET  /products`                    | List active fridge items, ordered by expiry   |
-| `POST /products`                    | Add a new product                             |
-| `PATCH /products/{id}`              | Update product quantity, expiry date, category|
-| `DELETE /products/{id}`             | Delete one product (logs as consumed/wasted)  |
-| `DELETE /products`                  | Clear active fridge products                  |
-| **Shopping List** (Bearer required) |                                               |
-| `GET  /shopping`                    | List shopping items                           |
-| `POST /shopping`                    | Add item to shopping list                     |
-| `PATCH /shopping/{id}`              | Toggle checked state or update details        |
-| `DELETE /shopping/{id}`             | Delete item from shopping list                |
-| `POST /shopping/{id}/purchase`      | Purchase item (moves it to fridge inventory)  |
-| **Meal Planner** (Bearer required)  |                                               |
-| `GET  /meal-plan`                   | Get the weekly meal plan                      |
-| `POST /meal-plan`                   | Generate a new weekly meal plan (via AI)      |
-| `POST /meal-plan/regenerate-day`    | Regenerate plan for a specific day            |
-| `POST /meal-plan/regenerate-meal`   | Regenerate plan for a specific single meal    |
-| `POST /meal-plan/recipe`            | Retrieve full AI recipe instructions          |
-| `POST /meal-plan/import-gaps`       | Import missing ingredients to shopping list   |
-| **Saved Recipes** (Bearer required) |                                               |
-| `GET  /saved-recipes`               | List user's saved recipes                     |
-| `POST /saved-recipes`               | Save a recipe to user's favorites             |
-| `DELETE /saved-recipes/{id}`        | Delete a saved recipe                         |
-| **Nutrition Tracker** (Bearer req)  |                                               |
-| `GET  /nutrition/daily`             | Retrieve daily logs and target progress       |
-| `POST /nutrition/log`               | Log a meal consumed                           |
-| `PUT  /nutrition/log/{id}`          | Edit a logged meal entry                      |
-| `DELETE /nutrition/log/{id}`        | Delete a logged meal entry                    |
-| `POST /nutrition/targets`           | Set daily calorie and macro targets           |
-| **Analytics** (Bearer required)     |                                               |
-| `GET  /analytics`                   | Get inventory and waste summaries             |
-| **Chat** (Bearer required)          |                                               |
-| `GET  /chat`                        | Last 24h, max 20 messages                     |
-| `POST /chat`                        | Ask the AI chef (rate-limited 5/60s)          |
-| `DELETE /chat`                      | Clear chat history                            |
-
-Listens on `http://localhost:5080` (see `Properties/launchSettings.json`).
-
 ---
 
-## Quick walkthrough (curl)
+## Testing
 
-A minimal end-to-end signup → verify → login → products flow. Replace `BASE`, `EMAIL`, `PASSWORD`, and the verification token where shown.
+The solution includes comprehensive unit and integration tests using xUnit, WebApplicationFactory, and in-memory test doubles.
 
 ```bash
-BASE=http://localhost:5080
+# Run all tests
+dotnet test
 
-# 1. Sign up. The server emails a verification link.
-curl -sS -X POST "$BASE/auth/signup" \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"yanosh","email":"you@example.com","password":"hunter22!"}'
-
-# 2. Login without verifying → 403 EMAIL_NOT_VERIFIED.
-curl -sS -i -X POST "$BASE/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"hunter22!"}'
-
-# 3. SPA exchanges token via POST /auth/verify-email.
-curl -sS -X POST "$BASE/auth/verify-email" \
-  -H 'Content-Type: application/json' \
-  -d "{\"token\":\"<raw-token-from-email>\"}"
-
-# 4. Login now returns a TokenPair.
-ACCESS=$(curl -sS -X POST "$BASE/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"you@example.com","password":"hunter22!"}' \
-  | jq -r .accessToken)
-
-# 5. Create a product.
-curl -sS -X POST "$BASE/products" \
-  -H "Authorization: Bearer $ACCESS" \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"Milk","quantity":1,"unit":"l","expiryDate":"2026-06-01"}'
-
-# 6. List products.
-curl -sS "$BASE/products" -H "Authorization: Bearer $ACCESS"
-
-# 7. Ask the chef.
-curl -sS -X POST "$BASE/chat" \
-  -H "Authorization: Bearer $ACCESS" \
-  -H 'Content-Type: application/json' \
-  -d '{"content":"What can I cook with what I have?"}'
+# Run tests with detailed logger
+dotnet test --logger "console;verbosity=detailed"
 ```
-
-### Error envelope
-
-Every non-validation error returns the same JSON shape:
-
-```json
-{ "code": "EMAIL_NOT_VERIFIED", "error": "Email is not verified yet. Check your inbox or request a new email." }
-```
-
-Branch your client on `code` (stable, machine-readable). `error` is the English fallback message.
-
-| Code | Where | Meaning |
-| --- | --- | --- |
-| `EMAIL_EXISTS` | `POST /auth/signup` | Address already registered. |
-| `EMAIL_NOT_VERIFIED` | `POST /auth/login` | Account exists but the email is unconfirmed. |
-| `BAD_CREDENTIALS` | `POST /auth/login` | Wrong email or password. |
-| `REFRESH_INVALID` | `POST /auth/refresh` | Token unknown / expired / revoked. |
-| `TOKEN_MISSING` / `TOKEN_NOT_FOUND` / `TOKEN_USED` / `TOKEN_EXPIRED` | `POST /auth/verify-email` | Email verification failure modes. |
-| `GOOGLE_TOKEN_INVALID` / `GOOGLE_EMAIL_UNVERIFIED` | `POST /auth/google` | Google ID-token rejected. |
-| `PRODUCT_NOT_FOUND` | `PATCH/DELETE /products/{id}` | No row for that id owned by the caller. |
-| `RATE_LIMITED` | `POST /chat` | 6th call within the 60 s window. |
-
-Validation errors (e.g. wrong DTO shape) come back as RFC 7807 `ProblemDetails` with an `errors` dictionary.
-
----
-
-## Database
-
-The schema lives in this repo as plain `.sql` migrations under `src/VFridge.Api/Migrations/`:
-
-| File                                  | Purpose                                                                 |
-| ------------------------------------- | ----------------------------------------------------------------------- |
-| `000_initial.sql`                     | Base tables (`users`, `products`, `chat`)                              |
-| `001_auth.sql`                        | Auth additions: email verification, refresh tokens, Google OAuth logins |
-| `002_categories.sql`                  | Categorized inventory tables                                            |
-| `003_shopping_items.sql`              | Custom shopping list structures                                         |
-| `004_consumption_log.sql`             | Log for product consumption and waste tracking                          |
-| `005_shared_fridges.sql`              | Multi-fridge sharing, owners, invitations, and membership               |
-| `006_username_display_name.sql`       | User display name and username extensions                               |
-| `007_user_preferred_language.sql`     | User localization language settings                                     |
-| `008_user_cuisine_preference.sql`     | Cuisine preference presets for recipe generations                       |
-| `009_shopping_items_fridge_id.sql`    | Associating shopping items with specific shared fridges                 |
-| `010_meal_plans.sql`                  | Storing generated weekly meals                                          |
-| `011_user_dietary_profile.sql`        | Storing custom dietary restrictions (e.g. Vegan, Keto)                  |
-| `012_calorie_tracker.sql`             | Calorie and daily macro targets tracker tables                          |
-| `013_user_avatar.sql`                 | Profile avatar image support                                            |
-| `014_saved_recipes.sql`               | Saved recipe bookmarks & nutrition metadata                             |
-| `015_consumption_log_fridge_id.sql`   | Fridge association for consumption logs                                 |
-
-`Infrastructure/SqlMigrator.cs` is a tiny additive-migration runner: on every startup it picks up each `NNN_*.sql`, hashes its filename, and applies it once per database (tracked in `schema_migrations`).
-
----
-
-## Branch / PR workflow
-
-Each major feature lands via its own branch + PR (no direct commits to `main`):
-
-| Branch                              | Scope                                                  |
-| ----------------------------------- | ------------------------------------------------------ |
-| `feat/bootstrap-api`                | Project skeleton, EF Core, OpenAPI, health             |
-| `feat/products-chat-endpoints`      | Products CRUD, Chat (OpenRouter)                       |
-| `feat/auth`                         | Stateless JWT + Google ID-token + email verification   |
-| `feat-shared-fridges`               | Shared fridges, member permissions, invitations         |
-| `feat-shopping-list`                | Shopping list endpoints & auto-purchase sync           |
-| `feat-meal-plan`                    | AI weekly planner & ingredient gap imports             |
-| `feat-nutrition-base`               | Daily calorie & macro tracking                         |
-| `feat-saved-recipes`                | Saved recipe bookmarks API                             |
-| `feat-vchef-integration`            | V-Chef microservice integration client & warmup ping   |
-| `feat-analytics`                    | Inventory consumption & waste analytics                |
