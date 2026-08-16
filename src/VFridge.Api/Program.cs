@@ -133,10 +133,15 @@ builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService
     client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
 });
 var vChefBaseUrl = builder.Configuration["VChef:BaseUrl"] ?? "https://v-chef.onrender.com";
+var vChefInternalToken = builder.Configuration["VChef:InternalToken"] ?? builder.Configuration["VCHEF_INTERNAL_TOKEN"];
 builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
 {
     client.BaseAddress = new Uri(vChefBaseUrl);
     client.Timeout = TimeSpan.FromSeconds(40);
+    if (!string.IsNullOrWhiteSpace(vChefInternalToken))
+    {
+        client.DefaultRequestHeaders.Add("X-Internal-Token", vChefInternalToken);
+    }
 });
 builder.Services.AddHostedService<VChefWarmupService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
