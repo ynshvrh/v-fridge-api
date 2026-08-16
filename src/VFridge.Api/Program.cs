@@ -36,13 +36,20 @@ builder.Services.Configure<FrontendOptions>(builder.Configuration.GetSection(Fro
 builder.Services.Configure<OpenRouterOptions>(builder.Configuration.GetSection(OpenRouterOptions.SectionName));
 
 // Database
-var connectionString =
-    builder.Configuration.GetConnectionString("Default")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? throw new InvalidOperationException("Connection string 'Default' (or DATABASE_URL env var) is required.");
+var rawConn = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(rawConn))
+{
+    rawConn = Environment.GetEnvironmentVariable("DATABASE_URL")
+              ?? builder.Configuration["DATABASE_URL"];
+}
+
+if (string.IsNullOrWhiteSpace(rawConn))
+{
+    throw new InvalidOperationException("Connection string 'Default' (or DATABASE_URL env var) is required.");
+}
 
 builder.Services.AddDbContext<VFridgeDbContext>(options =>
-    options.UseNpgsql(NpgsqlConnectionString.Normalize(connectionString)));
+    options.UseNpgsql(NpgsqlConnectionString.Normalize(rawConn)));
 
 // CORS
 const string CorsPolicy = "VFridgeFrontend";
