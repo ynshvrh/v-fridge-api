@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -7,15 +7,6 @@
     <UserSecretsId>420e5a5e-f47a-441b-ade8-655a31109245</UserSecretsId>
   </PropertyGroup>
 
-  <ItemGroup>
-    <!-- Ship the SQL migrations alongside the binary so SqlMigrator can find them at startup.
-         Without this they only exist in the project source folder, which works for
-         `dotnet run` but not for `dotnet publish` / a container image. -->
-    <Content Include="Migrations\**\*.sql">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
-    </Content>
-  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />

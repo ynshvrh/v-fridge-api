@@ -226,10 +226,12 @@ builder.Services.AddProblemDetails();
 
 var app = builder.Build();
 
-// Apply additive SQL migrations
-await SqlMigrator.ApplyAsync(
-    app.Services,
-    Path.Combine(app.Environment.ContentRootPath, "Migrations"));
+// Apply EF Core Migrations automatically on startup
+await using (var scope = app.Services.CreateAsyncScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<VFridgeDbContext>();
+    await db.Database.MigrateAsync();
+}
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();

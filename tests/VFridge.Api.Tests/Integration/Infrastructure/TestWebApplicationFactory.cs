@@ -59,7 +59,7 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Tests run from the test bin/ — point the host at the API project source so
-        // SqlMigrator finds Migrations/*.sql and any other content files.
+        // EF Core migrations find content files and assembly resources.
         builder.UseContentRoot(LocateApiProjectRoot());
 
         builder.ConfigureAppConfiguration((_, config) =>
