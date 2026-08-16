@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package vchef.v1;
+
+option csharp_namespace = "VFridge.Api.Protos.V1";
+
+service ChefService {
+  rpc GenerateRecipe (GenerateRecipeRequest) returns (GenerateRecipeResponse);
+  rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
+}
+
+message GenerateRecipeRequest {
+  repeated string ingredients = 1;
+  string meal_type = 2;
+  string dietary_category = 3;
+  int32 max_prep_time_mins = 4;
+  int32 target_calories = 5;
+}
+
+message RecipeIngredient {
+  string name = 1;
+  double quantity = 2;
+  string unit = 3;
+  bool in_fridge = 4;
+}
+
+message GenerateRecipeResponse {
+  string title = 1;
+  string description = 2;
+  int32 prep_time_mins = 3;
+  int32 cook_time_mins = 4;
+  int32 servings = 5;
+  int32 calories = 6;
+  double protein_grams = 7;
+  double fat_grams = 8;
+  double carbs_grams = 9;
+  repeated RecipeIngredient ingredients = 10;
+  repeated string steps = 11;
+  string generated_at = 12;
+}
+
+message HealthCheckRequest {}
+
+message HealthCheckResponse {
+  string status = 1;
+}
