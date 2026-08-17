@@ -277,7 +277,11 @@ public sealed class OpenRouterMealPlannerService(
 
     private static List<ChatMessage> BuildMessages(string systemPrompt, string cuisinePreference, string language, string? dietaryProfile, string userText)
     {
-        var messages = new List<ChatMessage> { new("system", systemPrompt) };
+        var messages = new List<ChatMessage> 
+        { 
+            new("system", systemPrompt),
+            new("system", AiPrompts.CulinarySanityRules)
+        };
 
         var culture = AiPrompts.CultureContextFor(SupportedCuisines.Normalize(cuisinePreference));
         if (culture is not null) messages.Add(new ChatMessage("system", culture));

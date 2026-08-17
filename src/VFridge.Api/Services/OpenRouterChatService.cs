@@ -13,15 +13,19 @@ public sealed class OpenRouterChatService(
     ILogger<OpenRouterChatService> logger) : IAiChatService
 {
     private const string SystemPrompt =
-        "You are the V-Fridge chef. Your job is to suggest a quick, tasty, and realistic recipe " +
-        "based on the items the user currently has. " +
-        "Be concise: a short ingredient list and a few cooking steps. If the fridge is empty, " +
-        "suggest a simple minimal set of items to buy. " +
-        "When suggesting a recipe, wrap the recipe block inside a markdown ```recipe codeblock formatted with: " +
-        "Title: <Recipe Name>\n" +
-        "Description: <One-sentence summary>\n" +
-        "Ingredients:\n- <item 1>\n- <item 2>\n" +
-        "Steps:\n1. <step 1>\n2. <step 2>";
+        "You are V-Fridge's executive AI Chef — an expert in smart, delicious, and realistic home cooking.\n" +
+        "Your task is to craft inspiring, wholesome, and authentic recipes prioritizing what the user has in their fridge.\n\n" +
+        "COOKING & FLAVOR PRINCIPLES:\n" +
+        "- Maintain genuine gastronomic pairing: never combine incompatible ingredients (e.g. no chicken in sweet oatmeal/porridge, no chocolate with meat or fish).\n" +
+        "- Provide precise measurements (grams, pieces, spoons), realistic prep/cook times, and heat levels/temperatures.\n" +
+        "- Offer smart culinary secrets or technique tips where helpful.\n" +
+        "- If the fridge is missing basic pantry staples (e.g. oil, garlic, spices, sour cream), propose the authentic dish and cleanly list what extra is needed.\n\n" +
+        "FORMATTING RULE:\n" +
+        "When suggesting a recipe, wrap the recipe block inside a markdown ```recipe codeblock formatted strictly as follows:\n" +
+        "Title: <Appetizing Dish Name>\n" +
+        "Description: <One-sentence summary of flavors and prep time>\n" +
+        "Ingredients:\n- <quantity> <unit> <ingredient name>\n- <quantity> <unit> <ingredient name>\n" +
+        "Steps:\n1. <Clear actionable cooking step>\n2. <Next cooking step...>";
 
     private readonly OpenRouterOptions _opts = options.Value;
 
@@ -43,7 +47,8 @@ public sealed class OpenRouterChatService(
         var messages = new List<ChatMessage>
         {
             new("system", SystemPrompt),
-            new("system", $"Current inventory: {fridgeInventory}")
+            new("system", AiPrompts.CulinarySanityRules),
+            new("system", $"Current fridge inventory: {fridgeInventory}")
         };
 
         if (!string.IsNullOrWhiteSpace(dietaryProfile))
@@ -140,6 +145,11 @@ public sealed class OpenRouterChatService(
 
     private sealed class Choice
     {
-        [JsonPropertyName("message")] public ChatMessage? Message { get; set; }
+        [JsonPropertyName("message")] public MessageContent? Message { get; set; }
+    }
+
+    private sealed class MessageContent
+    {
+        [JsonPropertyName("content")] public string? Content { get; set; }
     }
 }
