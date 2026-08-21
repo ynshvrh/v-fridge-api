@@ -114,7 +114,7 @@ public static class NutritionEndpoints
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         DateOnly date;
-        if (!DateOnly.TryParse(req.Date, System.Globalization.CultureInfo.InvariantCulture, out date))
+        if (string.IsNullOrWhiteSpace(req.Date) || !DateOnly.TryParse(req.Date, System.Globalization.CultureInfo.InvariantCulture, out date))
         {
             date = DateOnly.FromDateTime(DateTime.UtcNow);
         }

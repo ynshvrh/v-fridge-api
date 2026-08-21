@@ -61,6 +61,26 @@ public class ShoppingTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Create_DuplicateItem_MergesQuantity()
+    {
+        // 1. Add 2 eggs
+        var first = await _client.PostAsJsonAsync("/shopping", new { name = "Курячі яйця", quantity = 2, unit = "шт", category = "dairy" });
+        first.StatusCode.Should().Be(HttpStatusCode.Created);
+
+        // 2. Add 4 more eggs from another recipe
+        var second = await _client.PostAsJsonAsync("/shopping", new { name = "Курячі яйця", quantity = 4, unit = "шт", category = "dairy" });
+        second.StatusCode.Should().Be(HttpStatusCode.OK);
+        var secondBody = await second.Content.ReadFromJsonAsync<JsonElement>();
+        secondBody.GetProperty("quantity").GetDecimal().Should().Be(6); // 2 + 4
+
+        // 3. Verify only 1 item exists in shopping list with quantity = 6
+        var list = await _client.GetFromJsonAsync<JsonElement>("/shopping");
+        list.GetArrayLength().Should().Be(1);
+        list[0].GetProperty("name").GetString().Should().Be("Курячі яйця");
+        list[0].GetProperty("quantity").GetDecimal().Should().Be(6);
+    }
+
+    [Fact]
     public async Task Patch_TogglesCheckedAndUpdatesFields()
     {
         var created = await _client.PostAsJsonAsync("/shopping", new { name = "Eggs", quantity = 6, unit = "pcs", category = "other" });

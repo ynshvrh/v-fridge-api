@@ -88,12 +88,57 @@ public static class ShoppingEndpoints
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         var category = req.Category is { } c && ProductCategories.IsValid(c) ? c : ProductCategories.Other;
+        var trimmedName = req.Name.Trim();
+
+        // Deduplication: merge into existing unchecked shopping item if present in the same fridge
+        var existing = await db.ShoppingItems
+            .FirstOrDefaultAsync(i => i.FridgeId == resolved.Value.FridgeId &&
+                                      !i.Checked &&
+                                      i.Name.ToLower() == trimmedName.ToLower(), ct);
+
+        if (existing is not null)
+        {
+            if (req.Quantity.HasValue && req.Quantity > 0)
+            {
+                if (existing.Quantity.HasValue && existing.Quantity > 0)
+                {
+                    if (string.Equals(existing.Unit, req.Unit, StringComparison.OrdinalIgnoreCase) ||
+                        string.IsNullOrWhiteSpace(existing.Unit))
+                    {
+                        existing.Quantity += req.Quantity.Value;
+                        if (string.IsNullOrWhiteSpace(existing.Unit) && !string.IsNullOrWhiteSpace(req.Unit))
+                        {
+                            existing.Unit = req.Unit;
+                        }
+                    }
+                    else
+                    {
+                        var converted = IngredientDeductionHelper.ConvertQuantity(req.Quantity.Value, req.Unit ?? "", existing.Unit);
+                        existing.Quantity += converted;
+                    }
+                }
+                else
+                {
+                    existing.Quantity = req.Quantity;
+                    existing.Unit = req.Unit;
+                }
+            }
+
+            if (existing.Category == ProductCategories.Other && category != ProductCategories.Other)
+            {
+                existing.Category = category;
+            }
+
+            await db.SaveChangesAsync(ct);
+            var mergedResp = new ShoppingItemResponse(existing.Id, existing.Name, existing.Quantity, existing.Unit, existing.Category, existing.Checked, existing.CreatedAt);
+            return Results.Ok(mergedResp);
+        }
 
         var entity = new ShoppingItem
         {
             UserId = uid,
             FridgeId = resolved.Value.FridgeId,
-            Name = req.Name.Trim(),
+            Name = trimmedName,
             Quantity = req.Quantity,
             Unit = req.Unit,
             Category = category

@@ -382,6 +382,13 @@ public static class ProductsEndpoints
         if (entity is null)
             return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
+        if (entity.Quantity <= 0)
+        {
+            db.Products.Remove(entity);
+            await db.SaveChangesAsync(ct);
+            return Results.NotFound(new { code = "PORTIONS_EXHAUSTED", error = "Ця страва вже повністю з'їдена або вилучена з холодильника." });
+        }
+
         var portionsToConsume = req.Portions <= 0 ? 1 : req.Portions;
 
         // Auto-detect meal type if not provided
@@ -440,7 +447,7 @@ public static class ProductsEndpoints
         else
         {
             productRemoved = false;
-            entity.Quantity -= portionsToConsume;
+            entity.Quantity = Math.Max(0, entity.Quantity - portionsToConsume);
             remaining = entity.Quantity;
         }
 
