@@ -143,4 +143,66 @@ public static class IngredientDeductionHelper
 
         return false;
     }
+
+    public static string NormalizeUnit(string? unit)
+    {
+        if (string.IsNullOrWhiteSpace(unit)) return string.Empty;
+        var u = unit.Trim().ToLowerInvariant().TrimEnd('.');
+        return u switch
+        {
+            "кг" or "kg" or "кілограм" or "килограмм" or "килограм" => "kg",
+            "г" or "g" or "грам" or "грамм" or "гр" => "g",
+            "л" or "l" or "літр" or "литр" => "l",
+            "мл" or "ml" or "мілілітр" or "миллилитр" => "ml",
+            "шт" or "pcs" or "штук" or "pc" or "piece" or "pieces" => "pcs",
+            _ => u
+        };
+    }
+
+    public static decimal ConvertQuantity(decimal quantity, string? fromUnit, string? toUnit)
+    {
+        var fromNorm = NormalizeUnit(fromUnit);
+        var toNorm = NormalizeUnit(toUnit);
+
+        if (fromNorm == toNorm || string.IsNullOrEmpty(fromNorm) || string.IsNullOrEmpty(toNorm))
+        {
+            return quantity;
+        }
+
+        // Weight
+        if (fromNorm == "g" && toNorm == "kg") return quantity / 1000m;
+        if (fromNorm == "kg" && toNorm == "g") return quantity * 1000m;
+
+        // Volume
+        if (fromNorm == "ml" && toNorm == "l") return quantity / 1000m;
+        if (fromNorm == "l" && toNorm == "ml") return quantity * 1000m;
+
+        return quantity;
+    }
+
+    public static (int Calories, decimal Protein, decimal Fat, decimal Carbs) ParseNutrition(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return (0, 0, 0, 0);
+
+        int cal = 0;
+        decimal prot = 0, fat = 0, carbs = 0;
+
+        var calMatch = Regex.Match(text, @"(\d+)\s*(?:кКал|ккал|kcal|calories|cal)", RegexOptions.IgnoreCase);
+        if (calMatch.Success && int.TryParse(calMatch.Groups[1].Value, out var c))
+            cal = c;
+
+        var protMatch = Regex.Match(text, @"(?:Б|Біл(?:ки|ок)?|Protein|Prot)[:\s]+(\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase);
+        if (protMatch.Success && decimal.TryParse(protMatch.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var p))
+            prot = p;
+
+        var fatMatch = Regex.Match(text, @"(?:Ж|Жир(?:и)?|Fat)[:\s]+(\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase);
+        if (fatMatch.Success && decimal.TryParse(fatMatch.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var f))
+            fat = f;
+
+        var carbMatch = Regex.Match(text, @"(?:В|Вуг(?:леводи)?|Carbs)[:\s]+(\d+(?:[\.,]\d+)?)", RegexOptions.IgnoreCase);
+        if (carbMatch.Success && decimal.TryParse(carbMatch.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var cb))
+            carbs = cb;
+
+        return (cal, prot, fat, carbs);
+    }
 }

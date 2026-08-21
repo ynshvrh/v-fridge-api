@@ -19,6 +19,7 @@ public static class ProductCategories
     public const string Sauces = "sauces";
     public const string Frozen = "frozen";
     public const string CannedPrepared = "canned-prepared";
+    public const string PreparedMeals = "prepared-meals";
     public const string Other = "other";
 
     public static readonly IReadOnlyDictionary<string, string> Labels = new Dictionary<string, string>
@@ -35,6 +36,7 @@ public static class ProductCategories
         [Sauces] = "Sauces, oils & spices",
         [Frozen] = "Frozen",
         [CannedPrepared] = "Canned & ready-to-eat",
+        [PreparedMeals] = "Prepared meals",
         [Other] = "Other",
     };
 

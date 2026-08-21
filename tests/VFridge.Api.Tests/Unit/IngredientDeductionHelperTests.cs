@@ -76,4 +76,28 @@ public class IngredientDeductionHelperTests
         isCovered.Should().BeTrue();
         missingQty.Should().BeNull();
     }
+
+    [Theory]
+    [InlineData(500, "g", "kg", 0.5)]
+    [InlineData(1.5, "kg", "g", 1500)]
+    [InlineData(250, "ml", "l", 0.25)]
+    [InlineData(1, "l", "ml", 1000)]
+    [InlineData(3, "pcs", "pcs", 3)]
+    public void ConvertQuantity_ConvertsUnitsCorrectly(double qty, string fromUnit, string toUnit, double expected)
+    {
+        var result = IngredientDeductionHelper.ConvertQuantity((decimal)qty, fromUnit, toUnit);
+        result.Should().Be((decimal)expected);
+    }
+
+    [Fact]
+    public void ParseNutrition_ExtractsCaloriesAndMacros()
+    {
+        var text = "Смачний борщ • КБЖВ на 1 порцію: 280 кКал | Б: 16г | Ж: 9.5г | В: 32г";
+        var (cal, prot, fat, carbs) = IngredientDeductionHelper.ParseNutrition(text);
+
+        cal.Should().Be(280);
+        prot.Should().Be(16m);
+        fat.Should().Be(9.5m);
+        carbs.Should().Be(32m);
+    }
 }

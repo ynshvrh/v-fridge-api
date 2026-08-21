@@ -173,6 +173,93 @@ public class ProductsTests : IAsyncLifetime
         body.GetProperty("description").GetString().Should().Be("rye");
     }
 
+    [Fact]
+    public async Task CookRecipe_DeductsRawIngredients_AndCreatesPreparedMealContainer()
+    {
+        // 1. Add raw ingredients
+        await _client.PostAsJsonAsync("/products", new { name = "Куряче філе", quantity = 600, unit = "г", category = "meat-fish" });
+        await _client.PostAsJsonAsync("/products", new { name = "Рис басматі", quantity = 800, unit = "г", category = "pantry" });
+
+        // 2. Cook a meal
+        var cookResp = await _client.PostAsJsonAsync("/products/cook", new
+        {
+            name = "Запечене куряче філе з рисом",
+            portions = 3,
+            ingredients = new[] { "300г куряче філе", "200г рис басматі" },
+            caloriesPerPortion = 440,
+            proteinPerPortion = 38,
+            fatPerPortion = 8,
+            carbsPerPortion = 52,
+            expiryDays = 3
+        });
+
+        cookResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cookBody = await cookResp.Content.ReadFromJsonAsync<JsonElement>();
+        cookBody.GetProperty("deductions").GetArrayLength().Should().Be(2);
+
+        var meal = cookBody.GetProperty("preparedMealProduct");
+        meal.GetProperty("name").GetString().Should().Be("Запечене куряче філе з рисом");
+        meal.GetProperty("quantity").GetDecimal().Should().Be(3);
+        meal.GetProperty("category").GetString().Should().Be("prepared-meals");
+
+        // 3. Verify remaining quantities of raw products in fridge
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        products.GetArrayLength().Should().Be(3);
+
+        var chicken = products.EnumerateArray().First(p => p.GetProperty("name").GetString() == "Куряче філе");
+        chicken.GetProperty("quantity").GetDecimal().Should().Be(300); // 600 - 300
+
+        var rice = products.EnumerateArray().First(p => p.GetProperty("name").GetString() == "Рис басматі");
+        rice.GetProperty("quantity").GetDecimal().Should().Be(600); // 800 - 200
+    }
+
+    [Fact]
+    public async Task ConsumeProduct_DecrementsPortion_AndLogsToNutritionDiary()
+    {
+        // 1. Add prepared meal
+        var createResp = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Український борщ",
+            description = "КБЖВ на 1 порцію: 280 кКал | Б: 16г | Ж: 9г | В: 32г",
+            quantity = 2,
+            unit = "порцій",
+            category = "prepared-meals"
+        });
+        var mealId = (await createResp.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        // 2. Consume 1 portion
+        var eatResp = await _client.PostAsJsonAsync($"/products/{mealId}/consume", new
+        {
+            portions = 1,
+            mealType = "lunch"
+        });
+        eatResp.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var eatBody = await eatResp.Content.ReadFromJsonAsync<JsonElement>();
+        eatBody.GetProperty("productRemoved").GetBoolean().Should().BeFalse();
+        eatBody.GetProperty("remainingQuantity").GetDecimal().Should().Be(1);
+
+        // 3. Verify entry in Nutrition Daily logs
+        var today = DateTime.UtcNow.ToString("yyyy-MM-dd");
+        var nutritionResp = await _client.GetFromJsonAsync<JsonElement>($"/nutrition/daily?date={today}");
+        var logs = nutritionResp.GetProperty("logs");
+        logs.GetArrayLength().Should().Be(1);
+        logs[0].GetProperty("foodName").GetString().Should().Be("Український борщ");
+        logs[0].GetProperty("calories").GetInt32().Should().Be(280);
+        logs[0].GetProperty("protein").GetDecimal().Should().Be(16);
+
+        // 4. Consume final portion
+        var eatFinalResp = await _client.PostAsJsonAsync($"/products/{mealId}/consume", new { portions = 1 });
+        eatFinalResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var eatFinalBody = await eatFinalResp.Content.ReadFromJsonAsync<JsonElement>();
+        eatFinalBody.GetProperty("productRemoved").GetBoolean().Should().BeTrue();
+        eatFinalBody.GetProperty("remainingQuantity").GetDecimal().Should().Be(0);
+
+        // 5. Verify product is gone from fridge
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        products.GetArrayLength().Should().Be(0);
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });

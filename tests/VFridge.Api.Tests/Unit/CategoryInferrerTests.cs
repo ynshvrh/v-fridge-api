@@ -24,6 +24,9 @@ public class CategoryInferrerTests
     [InlineData("хліб", ProductCategories.Bakery)]
     [InlineData("вода", ProductCategories.Drinks)]
     [InlineData("вино", ProductCategories.Alcohol)]
+    [InlineData("Український борщ", ProductCategories.PreparedMeals)]
+    [InlineData("Сирники", ProductCategories.PreparedMeals)]
+    [InlineData("Плов зі свининою", ProductCategories.PreparedMeals)]
     [InlineData("Unknown xyz", ProductCategories.Other)]
     public void InferCategory_CategorizesIngredientsCorrectly(string ingredientName, string expectedCategory)
     {
