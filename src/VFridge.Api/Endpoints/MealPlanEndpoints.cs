@@ -103,7 +103,7 @@ public static class MealPlanEndpoints
                     ?? new List<MealPlanMeal>();
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
-        var filteredGaps = await FilterGapItemsAsync(db, resolved.Value.FridgeId, gaps, ct);
+        var filteredGaps = await FilterGapItemsAsync(db, resolved.Value.FridgeId, meals, gaps, ct);
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, row.UpdatedAt));
     }
 
@@ -182,20 +182,22 @@ public static class MealPlanEndpoints
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        // If doing incremental planning, merge the new gap items with the old gap items (deduping by name)
-        var finalGaps = plan.GapItems.ToList();
+        // Merge new gaps with existing gaps if same week
+        var candidateGaps = plan.GapItems.ToList();
         if (isSameWeek && validatedDay is not null && existingGaps is not null)
         {
-            finalGaps = existingGaps
+            candidateGaps = existingGaps
                 .Concat(plan.GapItems)
                 .GroupBy(g => g.Name.ToLower().Trim())
                 .Select(grp => grp.First())
                 .ToList();
         }
 
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, plan.Meals, candidateGaps, ct);
+
         var now = DateTime.UtcNow;
         var mealsJson = JsonSerializer.Serialize(plan.Meals, CacheJson);
-        var gapsJson = JsonSerializer.Serialize(finalGaps, CacheJson);
+        var gapsJson = JsonSerializer.Serialize(filteredGaps, CacheJson);
 
         if (existing is null)
         {
@@ -216,7 +218,6 @@ public static class MealPlanEndpoints
         }
         await db.SaveChangesAsync(ct);
 
-        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, finalGaps, ct);
         return Results.Ok(new MealPlanResponse(plan.Meals, filteredGaps, now));
     }
 
@@ -301,7 +302,11 @@ public static class MealPlanEndpoints
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
 
-        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, meals, gaps, ct);
+        row.GapItemsJson = JsonSerializer.Serialize(filteredGaps, CacheJson);
+        row.UpdatedAt = now;
+        await db.SaveChangesAsync(ct);
+
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
     }
 
@@ -380,10 +385,11 @@ public static class MealPlanEndpoints
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, meals, gaps, ct);
+        row.GapItemsJson = JsonSerializer.Serialize(filteredGaps, CacheJson);
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
 
-        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
     }
 
@@ -440,7 +446,10 @@ public static class MealPlanEndpoints
         // Already have a recipe (filled earlier or carried by a regenerated meal) — return as-is,
         // no LLM call, no token spend.
         if (meal.Steps is { Count: > 0 })
-            return Results.Ok(new MealPlanResponse(meals, gaps, row.UpdatedAt));
+        {
+            var cachedGaps = await FilterGapItemsAsync(db, fridgeId, meals, gaps, ct);
+            return Results.Ok(new MealPlanResponse(meals, cachedGaps, row.UpdatedAt));
+        }
 
         var language = SupportedLanguages.Normalize(
             await db.Users.Where(u => u.Id == uid).Select(u => u.PreferredLanguage).FirstOrDefaultAsync(ct));
@@ -465,10 +474,11 @@ public static class MealPlanEndpoints
 
         var now = DateTime.UtcNow;
         row.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
+        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, meals, gaps, ct);
+        row.GapItemsJson = JsonSerializer.Serialize(filteredGaps, CacheJson);
         row.UpdatedAt = now;
         await db.SaveChangesAsync(ct);
 
-        var filteredGaps = await FilterGapItemsAsync(db, fridgeId, gaps, ct);
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, now));
     }
 
@@ -537,6 +547,7 @@ public static class MealPlanEndpoints
     private static async Task<List<MealPlanGapItem>> FilterGapItemsAsync(
         VFridgeDbContext db,
         int fridgeId,
+        IReadOnlyList<MealPlanMeal> meals,
         List<MealPlanGapItem> gaps,
         CancellationToken ct)
     {
@@ -548,20 +559,41 @@ public static class MealPlanEndpoints
             .Where(i => i.FridgeId == fridgeId && !i.Checked)
             .ToListAsync(ct);
 
+        // Collect all ingredient names across active meals
+        var allMealIngredientTexts = meals
+            .SelectMany(m => m.Ingredients ?? new List<string>())
+            .Where(ing => !string.IsNullOrWhiteSpace(ing))
+            .ToList();
+
         var result = new List<MealPlanGapItem>();
+        var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var g in gaps)
         {
             if (string.IsNullOrWhiteSpace(g.Name)) continue;
 
             var parsed = IngredientDeductionHelper.Parse(g.Name, g.Quantity, g.Unit);
-            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, products, shoppingItems);
 
+            // CRITICAL CHECK: Gap item MUST actually belong to at least one active meal's ingredient list!
+            bool isNeededInAnyMeal = allMealIngredientTexts.Any(ing => 
+                IngredientDeductionHelper.IsNameMatch(ing, parsed.CleanName));
+
+            if (!isNeededInAnyMeal)
+            {
+                // Discard orphaned gap that is not part of any active meal!
+                continue;
+            }
+
+            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, products, shoppingItems);
             if (isCovered) continue;
 
             var finalQtyStr = missingQty?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? g.Quantity;
             var category = CategoryInferrer.InferCategory(parsed.CleanName, g.Category);
-            result.Add(new MealPlanGapItem(parsed.CleanName, finalQtyStr, unit ?? g.Unit, category));
+
+            if (seenNames.Add(parsed.CleanName))
+            {
+                result.Add(new MealPlanGapItem(parsed.CleanName, finalQtyStr, unit ?? g.Unit, category));
+            }
         }
 
         return result;

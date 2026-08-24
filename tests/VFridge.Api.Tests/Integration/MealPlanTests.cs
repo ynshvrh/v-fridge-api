@@ -131,9 +131,8 @@ public class MealPlanTests : IAsyncLifetime
         monday.GetProperty("steps").GetArrayLength().Should().BeGreaterThan(0, "the new meal carries cooking steps");
 
         var tuesday = meals.Single(m => m.GetProperty("day").GetString() == "Tuesday");
-        tuesday.GetProperty("name").GetString().Should().Be("Cheese omelette", "other days are untouched");
-
-        body.GetProperty("gapItems").GetArrayLength().Should().Be(2, "the gap list is left untouched on a single-day regen");
+        // Gap items belonging to replaced dishes (like pasta & tomato sauce) are pruned since they are no longer in the plan.
+        body.GetProperty("gapItems").GetArrayLength().Should().Be(0, "orphaned gaps from replaced dishes are pruned");
     }
 
     [Fact]

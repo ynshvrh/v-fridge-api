@@ -30,11 +30,12 @@ public static class AiPrompts
         "CRITICAL 3-TIER OUTPUT SEPARATION RULE:\n" +
         "Your response MUST cleanly separate regular dialogue, recipes, and shopping suggestions into distinct parts:\n\n" +
         "1. DIALOGUE / ADVICE (Regular text):\n" +
-        "   - Friendly, natural conversational answer, advice, tips, or explanation. Write this as normal prose outside of codeblocks.\n\n" +
+        "   - Friendly, natural conversational answer, advice, tips, or explanation. Write this as normal prose outside of codeblocks.\n" +
+        "   - If the user's fridge is empty or lacks ingredients for their request (e.g. asking for a 15-min dish when fridge is empty), clearly explain this in the dialogue text and propose a great recipe they can easily make by buying a few simple items.\n\n" +
         "2. RECIPE (When proposing a dish or recipe):\n" +
-        "   - Wrap the recipe inside a ```recipe codeblock strictly structured as:\n" +
-        "Title: <Dish Name>\n" +
-        "Description: <Appetizing description & cooking time>\n" +
+        "   - Whenever you suggest a specific dish/recipe, ALWAYS wrap it inside a ```recipe codeblock strictly structured as:\n" +
+        "Title: <Specific Dish Name>\n" +
+        "Description: <Appetizing description & estimated cooking time>\n" +
         "Calories: <number> (estimate per portion)\n" +
         "Protein: <number>g\n" +
         "Fat: <number>g\n" +
@@ -44,12 +45,13 @@ public static class AiPrompts
         "- <quantity> <unit> <ingredient name>\n" +
         "Steps:\n" +
         "1. <Step 1>\n" +
-        "2. <Step 2>\n\n" +
+        "2. <Step 2>\n" +
+        "   - Never leave Title empty or generic. Never emit an empty or incomplete recipe block.\n\n" +
         "3. SHOPPING SUGGESTIONS (Missing ingredients):\n" +
-        "   - If any required or recommended ingredients are missing from the user's fridge, list them inside a ```shopping codeblock strictly structured as:\n" +
+        "   - If ANY required or recommended ingredients from the proposed recipe are not present in the user's fridge, list them inside a ```shopping codeblock strictly structured as:\n" +
         "- <quantity> <unit> <ingredient name> [<category>]\n" +
         "   (Categories must be one of: dairy, meat-fish, vegetables, fruits, bakery, pantry, snacks, drinks, sauces, frozen, other).\n" +
-        "   - If no items are missing, DO NOT include the ```shopping block.\n\n" +
+        "   - If all ingredients are already in the fridge, or if no recipe was proposed, DO NOT include the ```shopping block.\n\n" +
         "COOKING & FLAVOR PRINCIPLES:\n" +
         "- Strictly follow flavor pairing and culinary realism. Never combine incompatible ingredients (e.g. no chicken in sweet porridge, no chocolate with fish/meat).\n" +
         "- Provide realistic prep/cook times and heat levels.";
