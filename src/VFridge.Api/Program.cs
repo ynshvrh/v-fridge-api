@@ -8,6 +8,8 @@ using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
 using VFridge.Api.Endpoints;
+using VFridge.Api.Features.Fridges;
+using VFridge.Api.Features.Products;
 using VFridge.Api.Infrastructure;
 using VFridge.Api.Services;
 
@@ -188,6 +190,8 @@ else
 
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<FridgeContext>();
+builder.Services.AddScoped<IProductsService, ProductsService>();
+builder.Services.AddScoped<IFridgeService, FridgeService>();
 
 // Daily 09:00 Europe/Kyiv: expiry digests + anti-spam cleanup of unverified accounts.
 builder.Services.AddSingleton<DailyMaintenanceWorker>();

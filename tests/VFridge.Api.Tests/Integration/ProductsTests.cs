@@ -260,6 +260,60 @@ public class ProductsTests : IAsyncLifetime
         products.GetArrayLength().Should().Be(0);
     }
 
+    [Fact]
+    public async Task Create_DifferentExpiryDates_CreatesSeparateBatchRecords()
+    {
+        // Add Milk expiring in 2 days
+        await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Молоко 2.5%",
+            quantity = 1,
+            unit = "л",
+            expiryDate = "2026-09-01",
+            category = "dairy"
+        });
+
+        // Add Milk expiring in 10 days
+        await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Молоко 2.5%",
+            quantity = 1,
+            unit = "л",
+            expiryDate = "2026-09-10",
+            category = "dairy"
+        });
+
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        products.GetArrayLength().Should().Be(2);
+
+        var first = products[0];
+        first.GetProperty("name").GetString().Should().Be("Молоко 2.5%");
+        first.GetProperty("expiryDate").GetString().Should().Be("2026-09-01");
+
+        var second = products[1];
+        second.GetProperty("name").GetString().Should().Be("Молоко 2.5%");
+        second.GetProperty("expiryDate").GetString().Should().Be("2026-09-10");
+    }
+
+    [Fact]
+    public async Task CookRecipe_WithMissingRequiredIngredients_Returns_BadRequest()
+    {
+        // Only have chicken, but recipe requires chicken + rice
+        await _client.PostAsJsonAsync("/products", new { name = "Куряче філе", quantity = 500, unit = "г", category = "meat-fish" });
+
+        var cookResp = await _client.PostAsJsonAsync("/products/cook", new
+        {
+            name = "Куряче філе з рисом",
+            portions = 2,
+            ingredients = new[] { "300г куряче філе", "200г рис" },
+            caloriesPerPortion = 400
+        });
+
+        cookResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        var body = await cookResp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("code").GetString().Should().Be("MISSING_REQUIRED_INGREDIENTS");
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });

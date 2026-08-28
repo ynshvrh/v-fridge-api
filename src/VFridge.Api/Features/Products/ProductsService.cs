@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
@@ -6,118 +7,67 @@ using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
 using VFridge.Api.Services;
 
-namespace VFridge.Api.Endpoints;
+namespace VFridge.Api.Features.Products;
 
-public static class ProductsEndpoints
+public class ProductsService : IProductsService
 {
-    public static IEndpointRouteBuilder MapProductsEndpoints(this IEndpointRouteBuilder app)
+    private readonly VFridgeDbContext _db;
+    private readonly FridgeContext _fridgeContext;
+    private readonly ICurrentUser _me;
+
+    public ProductsService(VFridgeDbContext db, FridgeContext fridgeContext, ICurrentUser me)
     {
-        var group = app.MapGroup("/products").WithTags("Products");
-
-        group.MapGet("/", ListAsync)
-            .WithName("ListProducts")
-            .WithSummary("List the active fridge's products")
-            .WithDescription("Ordered by expiry date ascending. Uses the X-Fridge-Id header to pick a fridge or falls back to the caller's first owned fridge.")
-            .Produces<List<ProductResponse>>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized);
-
-        group.MapPost("/", CreateAsync)
-            .WithName("CreateProduct")
-            .WithSummary("Add a new product to the active fridge")
-            .Produces<ProductResponse>(StatusCodes.Status201Created)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
-
-        group.MapPost("/cook", CookAsync)
-            .WithName("CookRecipe")
-            .WithSummary("Cook a recipe: deduct raw ingredients from fridge and add prepared meal container")
-            .Produces<CookRecipeResponse>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
-
-        group.MapPost("/{id:int}/consume", ConsumeAsync)
-            .WithName("ConsumeProduct")
-            .WithSummary("Consume a portion of a product/prepared meal and automatically log to nutrition diary")
-            .Produces<ConsumeProductResponse>(StatusCodes.Status200OK)
-            .Produces<ApiError>(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
-
-        group.MapPost("/{id:int}/eat", ConsumeAsync)
-            .WithName("EatProduct")
-            .WithSummary("Alias for consume product/prepared meal")
-            .Produces<ConsumeProductResponse>(StatusCodes.Status200OK)
-            .Produces<ApiError>(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
-
-        group.MapPatch("/{id:int}", UpdateAsync)
-            .WithName("UpdateProduct")
-            .WithSummary("Patch a product in the active fridge")
-            .Produces<ProductResponse>(StatusCodes.Status200OK)
-            .Produces<ApiError>(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .ProducesValidationProblem();
-
-        group.MapDelete("/{id:int}", DeleteAsync)
-            .WithName("DeleteProduct")
-            .WithSummary("Delete a product in the active fridge")
-            .Produces(StatusCodes.Status200OK)
-            .Produces<ApiError>(StatusCodes.Status404NotFound)
-            .Produces(StatusCodes.Status401Unauthorized);
-
-        group.MapDelete("/", DeleteAllAsync)
-            .WithName("DeleteAllProducts")
-            .WithSummary("Empty the active fridge (Owner only)")
-            .Produces(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized)
-            .Produces<ApiError>(StatusCodes.Status403Forbidden);
-
-        return app;
+        _db = db;
+        _fridgeContext = fridgeContext;
+        _me = me;
     }
 
-    private static async Task<IResult> ListAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
+    public async Task<IResult> ListAsync(CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
+        var resolved = await _fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
-        var items = await db.Products
+        var items = await _db.Products
             .Where(p => p.FridgeId == resolved.Value.FridgeId)
             .OrderBy(p => p.ExpiryDate)
-            .Select(p => new ProductResponse(p.Id, p.Name, p.Description, p.Quantity, p.Unit, p.ExpiryDate, p.Category, p.OwnerId, p.CreatedAt))
+            .Select(p => new ProductResponse(
+                p.Id,
+                p.Name,
+                p.Description,
+                p.Quantity,
+                p.Unit,
+                p.ExpiryDate,
+                p.Category,
+                p.OwnerId,
+                p.CreatedAt))
             .ToListAsync(ct);
 
         return Results.Ok(items);
     }
 
-    private static async Task<IResult> CreateAsync(
-        CreateProductRequest req,
-        VFridgeDbContext db,
-        ICurrentUser me,
-        FridgeContext fridgeContext,
-        CancellationToken ct)
+    public async Task<IResult> CreateAsync(CreateProductRequest req, CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
-        if (resolved is null || me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await _fridgeContext.ResolveAsync(ct);
+        if (resolved is null || _me.UserId is not int uid) return Results.Unauthorized();
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         var category = req.Category is { } c && ProductCategories.IsValid(c) ? c : ProductCategories.Other;
+        var trimmedName = req.Name.Trim();
+        var trimmedUnit = req.Unit.Trim();
 
-        var existingProduct = await db.Products
-            .FirstOrDefaultAsync(p => 
-                p.FridgeId == resolved.Value.FridgeId && 
-                p.Name.ToLower() == req.Name.ToLower().Trim() && 
-                p.Unit.ToLower() == req.Unit.ToLower().Trim(), ct);
+        // Separate batch policy: only merge if Name, Unit AND ExpiryDate match exactly
+        var existingProduct = await _db.Products
+            .FirstOrDefaultAsync(p =>
+                p.FridgeId == resolved.Value.FridgeId &&
+                p.Name.ToLower() == trimmedName.ToLower() &&
+                p.Unit.ToLower() == trimmedUnit.ToLower() &&
+                p.ExpiryDate == req.ExpiryDate, ct);
 
         Product entity;
         if (existingProduct is not null)
         {
             existingProduct.Quantity += req.Quantity;
-            if (req.ExpiryDate is { } expDate)
-            {
-                existingProduct.ExpiryDate = expDate;
-            }
             if (!string.IsNullOrWhiteSpace(req.Description))
             {
                 existingProduct.Description = req.Description.Trim();
@@ -128,113 +78,136 @@ public static class ProductsEndpoints
         {
             entity = new Product
             {
-                Name = req.Name.Trim(),
+                Name = trimmedName,
                 Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim(),
                 Quantity = req.Quantity,
-                Unit = req.Unit.Trim(),
+                Unit = trimmedUnit,
                 ExpiryDate = req.ExpiryDate,
                 Category = category,
                 OwnerId = uid,
                 FridgeId = resolved.Value.FridgeId
             };
-            db.Products.Add(entity);
+            _db.Products.Add(entity);
         }
 
         // Clean up matching unchecked shopping items since product is now in the fridge
-        var matchingShoppingItems = await db.ShoppingItems
-            .Where(i => 
-                i.FridgeId == resolved.Value.FridgeId && 
-                !i.Checked && 
-                i.Name.ToLower() == req.Name.ToLower().Trim())
+        var matchingShoppingItems = await _db.ShoppingItems
+            .Where(i =>
+                i.FridgeId == resolved.Value.FridgeId &&
+                !i.Checked &&
+                i.Name.ToLower() == trimmedName.ToLower())
             .ToListAsync(ct);
 
         if (matchingShoppingItems.Count > 0)
         {
-            db.ShoppingItems.RemoveRange(matchingShoppingItems);
+            _db.ShoppingItems.RemoveRange(matchingShoppingItems);
         }
 
-        await db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct);
 
-        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);
+        var resp = new ProductResponse(
+            entity.Id,
+            entity.Name,
+            entity.Description,
+            entity.Quantity,
+            entity.Unit,
+            entity.ExpiryDate,
+            entity.Category,
+            entity.OwnerId,
+            entity.CreatedAt);
+
         return Results.Created($"/products/{entity.Id}", resp);
     }
 
-    private static async Task<IResult> UpdateAsync(
-        int id,
-        UpdateProductRequest req,
-        VFridgeDbContext db,
-        FridgeContext fridgeContext,
-        CancellationToken ct)
+    public async Task<IResult> UpdateAsync(int id, UpdateProductRequest req, CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
+        var resolved = await _fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
-        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
-        if (entity is null) return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
+        var entity = await _db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
+        if (entity is null)
+            return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
         if (req.Name is { } n)
         {
-            if (n.Trim().Length < 2) return Results.ValidationProblem(new Dictionary<string, string[]>
+            if (n.Trim().Length < 2)
             {
-                ["name"] = ["Name is too short"]
-            });
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["name"] = ["Name is too short"]
+                });
+            }
             entity.Name = n.Trim();
         }
-        if (req.Description is not null) entity.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
 
-        // Quantity going to 0 is a real "I finished this" signal — log it before the row goes away.
+        if (req.Description is not null)
+        {
+            entity.Description = string.IsNullOrWhiteSpace(req.Description) ? null : req.Description.Trim();
+        }
+
+        // Quantity going to 0 is an auto-deletion signal with consumption logging
         var quantityDroppedToZero = req.Quantity is { } q0 && q0 <= 0;
         if (quantityDroppedToZero)
         {
-            db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ConsumptionStatus.Consumed));
-            db.Products.Remove(entity);
-            await db.SaveChangesAsync(ct);
+            _db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ConsumptionStatus.Consumed));
+            _db.Products.Remove(entity);
+            await _db.SaveChangesAsync(ct);
             return Results.Ok(new { success = true, removed = true });
         }
 
         if (req.Quantity is { } q)
         {
-            if (q <= 0) return Results.ValidationProblem(new Dictionary<string, string[]>
+            if (q <= 0)
             {
-                ["quantity"] = ["Quantity must be greater than 0"]
-            });
+                return Results.ValidationProblem(new Dictionary<string, string[]>
+                {
+                    ["quantity"] = ["Quantity must be greater than 0"]
+                });
+            }
             entity.Quantity = q;
         }
+
         if (req.Unit is { } u) entity.Unit = u;
         if (req.ExpiryDate is { } d) entity.ExpiryDate = d;
         if (req.Category is { } cat)
         {
             if (!ProductCategories.IsValid(cat))
+            {
                 return Results.ValidationProblem(new Dictionary<string, string[]>
                 {
                     ["category"] = ["Unknown category"]
                 });
+            }
             entity.Category = cat;
         }
 
-        await db.SaveChangesAsync(ct);
-        var resp = new ProductResponse(entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit, entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);
+        await _db.SaveChangesAsync(ct);
+
+        var resp = new ProductResponse(
+            entity.Id,
+            entity.Name,
+            entity.Description,
+            entity.Quantity,
+            entity.Unit,
+            entity.ExpiryDate,
+            entity.Category,
+            entity.OwnerId,
+            entity.CreatedAt);
+
         return Results.Ok(resp);
     }
 
-    private static async Task<IResult> CookAsync(
-        CookRecipeRequest req,
-        VFridgeDbContext db,
-        ICurrentUser me,
-        FridgeContext fridgeContext,
-        CancellationToken ct)
+    public async Task<IResult> CookAsync(CookRecipeRequest req, CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
-        if (resolved is null || me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await _fridgeContext.ResolveAsync(ct);
+        if (resolved is null || _me.UserId is not int uid) return Results.Unauthorized();
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         var fridgeId = resolved.Value.FridgeId;
-        var fridgeProducts = await db.Products
+        var fridgeProducts = await _db.Products
             .Where(p => p.FridgeId == fridgeId)
             .ToListAsync(ct);
-
-        var deductions = new List<DeductedIngredientSummary>();
 
         var ingredientsToDeduct = new List<string>();
         if (req.Ingredients is { Count: > 0 })
@@ -243,13 +216,46 @@ public static class ProductsEndpoints
         }
         else if (req.SavedRecipeId is int savedId)
         {
-            var savedRecipe = await db.SavedRecipes.FirstOrDefaultAsync(r => r.Id == savedId && r.UserId == uid, ct);
+            var savedRecipe = await _db.SavedRecipes.FirstOrDefaultAsync(r => r.Id == savedId && r.UserId == uid, ct);
             if (savedRecipe is not null)
             {
                 var ings = System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedRecipe.IngredientsJson);
                 if (ings is not null) ingredientsToDeduct.AddRange(ings);
             }
         }
+
+        // Strict ingredient verification
+        var missingRequired = new List<string>();
+        foreach (var rawIng in ingredientsToDeduct)
+        {
+            if (string.IsNullOrWhiteSpace(rawIng)) continue;
+
+            var parsed = IngredientDeductionHelper.Parse(rawIng);
+            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, fridgeProducts, []);
+
+            if (!isCovered)
+            {
+                var isOptional = IngredientDeductionHelper.IsOptionalSeasoningOrSauce(parsed.CleanName);
+                if (!isOptional || !req.IgnoreOptionalMissing)
+                {
+                    missingRequired.Add(missingQty.HasValue ? $"{missingQty.Value}{unit} {parsed.CleanName}" : parsed.CleanName);
+                }
+            }
+        }
+
+        if (missingRequired.Count > 0 && !req.IgnoreOptionalMissing && req.Ingredients is { Count: > 0 })
+        {
+            // If strictly required ingredients are missing
+            var missingList = string.Join(", ", missingRequired);
+            return Results.BadRequest(new
+            {
+                code = "MISSING_REQUIRED_INGREDIENTS",
+                error = $"Не вистачає інгредієнтів для приготування: {missingList}",
+                missing = missingRequired
+            });
+        }
+
+        var deductions = new List<DeductedIngredientSummary>();
 
         // Deduct matching ingredients from fridge inventory
         foreach (var rawIng in ingredientsToDeduct)
@@ -275,9 +281,9 @@ public static class ProductsEndpoints
             {
                 fullyConsumed = true;
                 deductAmount = matching.Quantity;
-                db.Products.Remove(matching);
+                _db.Products.Remove(matching);
                 fridgeProducts.Remove(matching);
-                db.ConsumptionLogs.Add(BuildConsumptionLog(matching, ConsumptionStatus.Consumed));
+                _db.ConsumptionLogs.Add(BuildConsumptionLog(matching, ConsumptionStatus.Consumed));
             }
             else
             {
@@ -349,10 +355,10 @@ public static class ProductsEndpoints
                 OwnerId = uid,
                 FridgeId = fridgeId
             };
-            db.Products.Add(entity);
+            _db.Products.Add(entity);
         }
 
-        await db.SaveChangesAsync(ct);
+        await _db.SaveChangesAsync(ct);
 
         var productResp = new ProductResponse(
             entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit,
@@ -365,27 +371,21 @@ public static class ProductsEndpoints
         return Results.Ok(new CookRecipeResponse(productResp, deductions, message));
     }
 
-    private static async Task<IResult> ConsumeAsync(
-        int id,
-        ConsumeProductRequest req,
-        VFridgeDbContext db,
-        ICurrentUser me,
-        FridgeContext fridgeContext,
-        CancellationToken ct)
+    public async Task<IResult> ConsumeAsync(int id, ConsumeProductRequest req, CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
-        if (resolved is null || me.UserId is not int uid) return Results.Unauthorized();
+        var resolved = await _fridgeContext.ResolveAsync(ct);
+        if (resolved is null || _me.UserId is not int uid) return Results.Unauthorized();
 
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
-        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
+        var entity = await _db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
         if (entity is null)
             return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
         if (entity.Quantity <= 0)
         {
-            db.Products.Remove(entity);
-            await db.SaveChangesAsync(ct);
+            _db.Products.Remove(entity);
+            await _db.SaveChangesAsync(ct);
             return Results.NotFound(new { code = "PORTIONS_EXHAUSTED", error = "Ця страва вже повністю з'їдена або вилучена з холодильника." });
         }
 
@@ -441,8 +441,8 @@ public static class ProductsEndpoints
         {
             productRemoved = true;
             remaining = 0;
-            db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ConsumptionStatus.Consumed));
-            db.Products.Remove(entity);
+            _db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ConsumptionStatus.Consumed));
+            _db.Products.Remove(entity);
         }
         else
         {
@@ -467,8 +467,8 @@ public static class ProductsEndpoints
             LoggedAt = DateTime.UtcNow
         };
 
-        db.NutritionLogs.Add(nutritionLog);
-        await db.SaveChangesAsync(ct);
+        _db.NutritionLogs.Add(nutritionLog);
+        await _db.SaveChangesAsync(ct);
 
         var message = productRemoved
             ? $"З'їдено останню порцію «{entity.Name}». Страву вилучено з холодильника та внесено в щоденник харчування."
@@ -477,25 +477,25 @@ public static class ProductsEndpoints
         return Results.Ok(new ConsumeProductResponse(productRemoved, remaining, nutritionLog.Id, message));
     }
 
-    private static async Task<IResult> DeleteAsync(int id, VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
+    public async Task<IResult> DeleteAsync(int id, CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
+        var resolved = await _fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
-        var entity = await db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
+        var entity = await _db.Products.FirstOrDefaultAsync(p => p.Id == id && p.FridgeId == resolved.Value.FridgeId, ct);
         if (entity is null)
             return Results.NotFound(new { code = "PRODUCT_NOT_FOUND", error = "Product not found" });
 
-        db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ClassifyDelete(entity)));
-        db.Products.Remove(entity);
-        await db.SaveChangesAsync(ct);
+        _db.ConsumptionLogs.Add(BuildConsumptionLog(entity, ClassifyDelete(entity)));
+        _db.Products.Remove(entity);
+        await _db.SaveChangesAsync(ct);
 
         return Results.Ok(new { success = true });
     }
 
-    private static async Task<IResult> DeleteAllAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
+    public async Task<IResult> DeleteAllAsync(CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
+        var resolved = await _fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
         if (!string.Equals(resolved.Value.Role, "Owner", StringComparison.OrdinalIgnoreCase))
@@ -505,11 +505,12 @@ public static class ProductsEndpoints
                 statusCode: StatusCodes.Status403Forbidden);
         }
 
-        var owned = await db.Products.Where(p => p.FridgeId == resolved.Value.FridgeId).ToListAsync(ct);
+        var owned = await _db.Products.Where(p => p.FridgeId == resolved.Value.FridgeId).ToListAsync(ct);
         foreach (var p in owned)
-            db.ConsumptionLogs.Add(BuildConsumptionLog(p, ClassifyDelete(p)));
-        db.Products.RemoveRange(owned);
-        await db.SaveChangesAsync(ct);
+            _db.ConsumptionLogs.Add(BuildConsumptionLog(p, ClassifyDelete(p)));
+
+        _db.Products.RemoveRange(owned);
+        await _db.SaveChangesAsync(ct);
 
         return Results.Ok(new { success = true, deleted = owned.Count });
     }

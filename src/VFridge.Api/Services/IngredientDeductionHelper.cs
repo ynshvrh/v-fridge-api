@@ -205,4 +205,21 @@ public static class IngredientDeductionHelper
 
         return (cal, prot, fat, carbs);
     }
+
+    public static bool IsOptionalSeasoningOrSauce(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return false;
+        var lower = name.Trim().ToLowerInvariant();
+        string[] optionalKeywords = [
+            "сіль", "соль", "salt",
+            "перець", "перец", "pepper",
+            "олія", "масло", "oil",
+            "спеції", "специи", "spice", "spices", "seasoning",
+            "соус", "sauce", "соєвий соус", "майонез", "кетчуп",
+            "цукор", "сахар", "sugar",
+            "зелень", "петрушка", "кріп", "укроп", "parsley", "dill",
+            "лавровий лист", "лавровый лист", "bay leaf"
+        ];
+        return optionalKeywords.Any(k => lower.Contains(k));
+    }
 }
