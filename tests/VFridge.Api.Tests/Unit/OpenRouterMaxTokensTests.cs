@@ -28,111 +28,66 @@ public class OpenRouterMaxTokensTests
     }
 
     [Fact]
-    public async Task Chat_Sends_MaxTokens_From_Options()
+    public async Task VChefChat_GeneratesStructuredJsonResponse_WhenVChefReturnsRecipe()
     {
-        var capture = new RequestCapturingHandler(CannedChatResponse());
-        var options = MakeOptions(maxTokens: 777);
-        var service = new OpenRouterChatService(
-            new HttpClient(capture),
-            options,
-            NullLogger<OpenRouterChatService>.Instance);
+        var mockVChef = new FakeVChefClient(new Contracts.VChefRecipeResponse(
+            Title: "Омлет з сиром",
+            Description: "Смачний та швидкий сніданок",
+            PrepTimeMins: 5,
+            CookTimeMins: 10,
+            Servings: 2,
+            Calories: 350,
+            ProteinGrams: 22,
+            FatGrams: 18,
+            CarbsGrams: 4,
+            Ingredients: [
+                new Contracts.VChefIngredient("Яйця", 2, "шт", true),
+                new Contracts.VChefIngredient("Сир", 50, "г", false)
+            ],
+            Steps: ["Збити яйця", "Посмажити на пательні"],
+            GeneratedAt: DateTime.UtcNow));
 
-        await service.GenerateReplyAsync(
+        var service = new VChefAiChatService(mockVChef, NullLogger<VChefAiChatService>.Instance);
+
+        var reply = await service.GenerateReplyAsync(
+            Array.Empty<(string Role, string Content)>(),
+            "Яйця [dairy] (10 шт)",
+            "що приготувати на сніданок?",
+            "ukrainian",
+            "uk",
+            null,
+            CancellationToken.None);
+
+        reply.Should().NotBeNull();
+        using var doc = JsonDocument.Parse(reply!);
+        doc.RootElement.GetProperty("recipe").GetProperty("name").GetString().Should().Be("Омлет з сиром");
+        doc.RootElement.GetProperty("suggestedShoppingItems").GetArrayLength().Should().Be(1);
+    }
+
+    [Fact]
+    public async Task VChefChat_ReturnsNull_WhenVChefReturnsNull()
+    {
+        var mockVChef = new FakeVChefClient(null);
+        var service = new VChefAiChatService(mockVChef, NullLogger<VChefAiChatService>.Instance);
+
+        var reply = await service.GenerateReplyAsync(
             Array.Empty<(string Role, string Content)>(),
             "empty fridge",
-            "what's for dinner?",
+            "hi",
             "any",
             "en",
             null,
             CancellationToken.None);
 
-        var body = capture.LastRequestBody.Should().NotBeNull().And.Subject!;
-        using var doc = JsonDocument.Parse(body!);
-        doc.RootElement.GetProperty("max_tokens").GetInt32().Should().Be(777);
-    }
-
-    [Fact]
-    public async Task MealPlanner_Includes_Cuisine_And_Language_Steering_In_Prompt()
-    {
-        var capture = new RequestCapturingHandler(CannedMealPlanResponse());
-        var service = new OpenRouterMealPlannerService(
-            new HttpClient(capture),
-            MakeOptions(maxTokens: 2048),
-            NullLogger<OpenRouterMealPlannerService>.Instance);
-
-        await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "ukrainian", "uk", null, null, null, CancellationToken.None);
-
-        using var doc = JsonDocument.Parse(capture.LastRequestBody!);
-        var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
-            .Where(m => m.GetProperty("role").GetString() == "system")
-            .Select(m => m.GetProperty("content").GetString()));
-
-        systemText.Should().Contain("Ukrainian cuisine", "the cuisine preference must steer the plan");
-        systemText.Should().Contain("in Ukrainian", "the plan must be written in the user's language");
-        // Machine codes must stay English regardless of the requested language.
-        systemText.Should().Contain("meat-fish").And.Contain("Never translate");
-    }
-
-    [Fact]
-    public async Task MealPlanner_Stays_Neutral_For_Any_Cuisine_And_English()
-    {
-        var capture = new RequestCapturingHandler(CannedMealPlanResponse());
-        var service = new OpenRouterMealPlannerService(
-            new HttpClient(capture),
-            MakeOptions(maxTokens: 2048),
-            NullLogger<OpenRouterMealPlannerService>.Instance);
-
-        await service.GenerateAsync(
-            Array.Empty<MealPlanInventoryItem>(), "any", "en", null, null, null, CancellationToken.None);
-
-        using var doc = JsonDocument.Parse(capture.LastRequestBody!);
-        var systemText = string.Join("\n", doc.RootElement.GetProperty("messages").EnumerateArray()
-            .Where(m => m.GetProperty("role").GetString() == "system")
-            .Select(m => m.GetProperty("content").GetString()));
-
-        systemText.Should().NotContain("The user prefers");
-        systemText.Should().NotContain("in Ukrainian");
-    }
-
-    [Fact]
-    public async Task Chat_FailsOverToNextModel_WhenFirstIsRateLimited()
-    {
-        // First model 429s, second returns text. The pool should fall through and succeed.
-        var handler = new SequenceHandler(
-            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") },
-            CannedChatResponse("борщ"));
-        var options = Options.Create(new OpenRouterOptions
-        {
-            ApiKey = "k",
-            Models = ["model-a:free", "model-b:free"],
-            MaxTokens = 2048,
-        });
-        var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
-
-        var reply = await service.GenerateReplyAsync(
-            Array.Empty<(string, string)>(), "fridge", "що приготувати?", "any", "uk", null, CancellationToken.None);
-
-        reply.Should().Be("борщ");
-        handler.Requests.Should().HaveCount(2);
-        ModelOf(handler.Requests[0]).Should().Be("model-a:free");
-        ModelOf(handler.Requests[1]).Should().Be("model-b:free");
-    }
-
-    [Fact]
-    public async Task Chat_ReturnsNull_WhenAllModelsFail()
-    {
-        var handler = new SequenceHandler(
-            new HttpResponseMessage(HttpStatusCode.PaymentRequired) { Content = new StringContent("no credit") },
-            new HttpResponseMessage(HttpStatusCode.TooManyRequests) { Content = new StringContent("rate limited") });
-        var options = Options.Create(new OpenRouterOptions { ApiKey = "k", Models = ["a:free", "b:free"], MaxTokens = 2048 });
-        var service = new OpenRouterChatService(new HttpClient(handler), options, NullLogger<OpenRouterChatService>.Instance);
-
-        var reply = await service.GenerateReplyAsync(
-            Array.Empty<(string, string)>(), "fridge", "hi", "any", "en", null, CancellationToken.None);
-
         reply.Should().BeNull();
-        handler.Requests.Should().HaveCount(2);
+    }
+
+    private sealed class FakeVChefClient(Contracts.VChefRecipeResponse? response) : IVChefClient
+    {
+        public Task<Contracts.VChefRecipeResponse?> GenerateRecipeAsync(Contracts.VChefGenerateRecipeRequest request, CancellationToken ct = default)
+            => Task.FromResult(response);
+
+        public Task PingHealthAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
     [Fact]

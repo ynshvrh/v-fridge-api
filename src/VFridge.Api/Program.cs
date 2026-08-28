@@ -8,6 +8,7 @@ using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
 using VFridge.Api.Endpoints;
+using VFridge.Api.Features.Chat;
 using VFridge.Api.Features.Fridges;
 using VFridge.Api.Features.Products;
 using VFridge.Api.Infrastructure;
@@ -135,10 +136,8 @@ builder.Services.AddRateLimiter(options =>
 // Current-user accessor + AI service + auth services
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
-builder.Services.AddHttpClient<IAiChatService, OpenRouterChatService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(60);
-});
+builder.Services.AddScoped<IAiChatService, VChefAiChatService>();
+builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService>(client =>
 {
     client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
