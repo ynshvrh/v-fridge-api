@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VFridge.Api.Auth;
 using VFridge.Api.Contracts;
@@ -5,27 +6,22 @@ using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
 using VFridge.Api.Services;
 
-namespace VFridge.Api.Endpoints;
+namespace VFridge.Api.Features.Analytics;
 
-public static class AnalyticsEndpoints
+public class AnalyticsService : IAnalyticsService
 {
-    public static IEndpointRouteBuilder MapAnalyticsEndpoints(this IEndpointRouteBuilder app)
+    private readonly VFridgeDbContext _db;
+    private readonly FridgeContext _fridgeContext;
+
+    public AnalyticsService(VFridgeDbContext db, FridgeContext fridgeContext)
     {
-        var group = app.MapGroup("/analytics").WithTags("Analytics");
-
-        group.MapGet("/", GetSummaryAsync)
-            .WithName("GetAnalyticsSummary")
-            .WithSummary("Dashboard analytics for the active fridge")
-            .WithDescription("Aggregates the consumption_log over the last 30 days: most-wasted items, fastest-consumed items, and a weekly count of consumed-vs-wasted-vs-expired rows for the last 8 weeks.")
-            .Produces<AnalyticsSummary>(StatusCodes.Status200OK)
-            .Produces(StatusCodes.Status401Unauthorized);
-
-        return app;
+        _db = db;
+        _fridgeContext = fridgeContext;
     }
 
-    private static async Task<IResult> GetSummaryAsync(VFridgeDbContext db, FridgeContext fridgeContext, CancellationToken ct)
+    public async Task<IResult> GetSummaryAsync(CancellationToken ct)
     {
-        var resolved = await fridgeContext.ResolveAsync(ct);
+        var resolved = await _fridgeContext.ResolveAsync(ct);
         if (resolved is null) return Results.Unauthorized();
 
         var fridgeId = resolved.Value.FridgeId;
@@ -33,7 +29,7 @@ public static class AnalyticsEndpoints
         var thirtyDaysAgo = now.AddDays(-30);
         var eightWeeksAgo = now.AddDays(-56);
 
-        var wastedRows = await db.ConsumptionLogs
+        var wastedRows = await _db.ConsumptionLogs
             .Where(c => c.FridgeId == fridgeId
                         && c.ConsumedAt >= thirtyDaysAgo
                         && (c.Status == ConsumptionStatus.Wasted || c.Status == ConsumptionStatus.Expired))
@@ -52,7 +48,7 @@ public static class AnalyticsEndpoints
             .Take(5)
             .ToList();
 
-        var fastestConsumed = await db.ConsumptionLogs
+        var fastestConsumed = await _db.ConsumptionLogs
             .Where(c => c.FridgeId == fridgeId
                         && c.Status == ConsumptionStatus.Consumed
                         && c.ConsumedAt >= thirtyDaysAgo
@@ -63,17 +59,14 @@ public static class AnalyticsEndpoints
             .Select(c => new FastestConsumed(c.ProductName, c.Category, c.AgeDays!.Value))
             .ToListAsync(ct);
 
-        var weekly = await db.ConsumptionLogs
+        var weekly = await _db.ConsumptionLogs
             .Where(c => c.FridgeId == fridgeId && c.ConsumedAt >= eightWeeksAgo)
             .ToListAsync(ct);
 
-        // Bucket into ISO weeks client-side (after the round-trip) so EF doesn't have to translate
-        // a window function — the data set is small (one user, last 8 weeks).
         var weeklyTrends = weekly
             .GroupBy(c =>
             {
                 var d = c.ConsumedAt ?? DateTime.UtcNow;
-                // Monday-of-week, 0 if it is already Monday, 6 if it is Sunday.
                 var offset = ((int)d.DayOfWeek + 6) % 7;
                 var monday = d.AddDays(-offset);
                 return new DateTime(monday.Year, monday.Month, monday.Day);
