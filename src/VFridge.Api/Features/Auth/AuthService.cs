@@ -1,11 +1,30 @@
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Contracts;
 using VFridge.Api.Data;
 using VFridge.Api.Data.Entities;
+using VFridge.Api.Services;
 
-namespace VFridge.Api.Services;
+namespace VFridge.Api.Features.Auth;
+
+public interface IAuthFeatureService
+{
+    Task<(bool Ok, string? ErrorCode, UserSummary? User)> SignUpAsync(SignUpRequest req, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, TokenPair? Tokens)> LoginAsync(LoginRequest req, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, TokenPair? Tokens)> RefreshAsync(string rawRefreshToken, CancellationToken ct);
+    Task RevokeAsync(string rawRefreshToken, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, int? UserId)> VerifyEmailAsync(string rawToken, CancellationToken ct);
+    Task<TokenPair?> IssueTokensForUserAsync(int userId, CancellationToken ct);
+    Task ResendVerificationAsync(string email, CancellationToken ct);
+    Task<TokenPair> SignInWithGoogleAsync(string googleSub, string email, string? name, CancellationToken ct);
+    Task<UserSummary?> GetCurrentUserAsync(int userId, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdatePreferencesAsync(int userId, UpdatePreferencesRequest req, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdateProfileAsync(int userId, UpdateProfileRequest req, CancellationToken ct);
+    Task<(bool Ok, string? ErrorCode, UserSummary? User)> UpdateAvatarAsync(int userId, string avatarUrl, string webRootPath, CancellationToken ct);
+}
 
 public sealed class AuthService(
     VFridgeDbContext db,
@@ -14,7 +33,7 @@ public sealed class AuthService(
     IEmailSender email,
     IOptions<JwtOptions> jwtOpts,
     IOptions<FrontendOptions> frontendOpts,
-    ILogger<AuthService> logger)
+    ILogger<AuthService> logger) : IAuthFeatureService
 {
     private readonly JwtOptions _jwt = jwtOpts.Value;
     private readonly FrontendOptions _frontend = frontendOpts.Value;
@@ -51,7 +70,6 @@ public sealed class AuthService(
         return (true, null, summary);
     }
 
-    /// <summary>Trims the supplied username, falls back to the local part of the email when empty.</summary>
     private static string DefaultUsername(string? raw, string email)
     {
         var trimmed = raw?.Trim();
@@ -89,7 +107,6 @@ public sealed class AuthService(
         if (stored is null || !stored.IsActive)
             return (false, RefreshErrorInvalid, null);
 
-        // Rotate: revoke the old token immediately, issue a fresh pair.
         stored.RevokedAt = DateTime.UtcNow;
 
         var pair = await IssueTokenPairAsync(stored.User, ct);
@@ -136,7 +153,6 @@ public sealed class AuthService(
         return (true, null, record.UserId);
     }
 
-    /// <summary>Issues a fresh token pair for a known-good user id — used right after email verification.</summary>
     public async Task<TokenPair?> IssueTokensForUserAsync(int userId, CancellationToken ct)
     {
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
@@ -147,7 +163,7 @@ public sealed class AuthService(
     {
         var emailNormalized = email.Trim().ToLowerInvariant();
         var user = await db.Users.FirstOrDefaultAsync(u => u.Email == emailNormalized, ct);
-        if (user is null) return; // intentionally silent — don't reveal account existence
+        if (user is null) return;
 
         var verified = await db.EmailVerifications.AnyAsync(v => v.UserId == user.Id, ct);
         if (verified) return;
@@ -155,7 +171,6 @@ public sealed class AuthService(
         await SendVerificationEmailAsync(user, ct);
     }
 
-    /// <summary>Find or create a user from a Google account and issue tokens.</summary>
     public async Task<TokenPair> SignInWithGoogleAsync(string googleSub, string email, string? name, CancellationToken ct)
     {
         var emailNormalized = email.Trim().ToLowerInvariant();
@@ -176,7 +191,6 @@ public sealed class AuthService(
                    {
                        Email = emailNormalized,
                        Username = DefaultUsername(name, emailNormalized),
-                       // Random placeholder hash; password-less Google users won't ever pass Verify.
                        Password = hasher.Hash(Guid.NewGuid().ToString("N"))
                    };
 
@@ -189,7 +203,6 @@ public sealed class AuthService(
                 ProviderUserId = googleSub
             });
 
-            // Google emails are pre-verified.
             if (!await db.EmailVerifications.AnyAsync(v => v.UserId == user.Id, ct))
             {
                 db.EmailVerifications.Add(new EmailVerification
@@ -228,8 +241,6 @@ public sealed class AuthService(
         UpdatePreferencesRequest req,
         CancellationToken ct)
     {
-        // Partial update: validate only the fields the client actually sent. Sending neither
-        // returns the current user unchanged so the endpoint stays idempotent.
         if (req.PreferredLanguage is not null && !SupportedLanguages.IsSupported(req.PreferredLanguage))
             return (false, PreferencesErrorUnsupportedLanguage, null);
         if (req.CuisinePreference is not null && !SupportedCuisines.IsSupported(req.CuisinePreference))
@@ -316,7 +327,6 @@ public sealed class AuthService(
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null) return (false, null, null);
 
-        // Delete old avatar if it exists
         if (!string.IsNullOrEmpty(user.Avatar) && user.Avatar.StartsWith("/avatars/"))
         {
             var oldFilename = Path.GetFileName(user.Avatar);
@@ -377,7 +387,7 @@ public sealed class AuthService(
 
     private async Task SendVerificationEmailAsync(User user, CancellationToken ct)
     {
-        var raw = tokens.GenerateRefreshToken(); // reusing the 256-bit url-safe generator
+        var raw = tokens.GenerateRefreshToken();
         var hash = tokens.Hash(raw);
 
         db.EmailVerificationTokens.Add(new EmailVerificationToken

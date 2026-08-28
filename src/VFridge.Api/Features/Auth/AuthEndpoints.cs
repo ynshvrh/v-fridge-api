@@ -1,14 +1,17 @@
 using System.ComponentModel.DataAnnotations;
 using Google.Apis.Auth;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Options;
 using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Contracts;
-using VFridge.Api.Services;
 
-namespace VFridge.Api.Endpoints;
+namespace VFridge.Api.Features.Auth;
 
 public static class AuthEndpoints
 {
@@ -182,15 +185,9 @@ public static class AuthEndpoints
         IOptions<FrontendOptions> frontend,
         CancellationToken ct)
     {
-        // Forward the raw token to the SPA — it'll call POST /auth/verify-email which both
-        // marks the email verified and returns a token pair so the user is auto-logged in.
-        // This avoids double-consuming the one-shot token and keeps tokens out of the URL
-        // visible in browser history (the SPA cleans up after success).
         var baseUrl = frontend.Value.BaseUrl.TrimEnd('/');
         return Results.Redirect($"{baseUrl}/verify-email?token={Uri.EscapeDataString(token)}");
     }
-
-    private sealed record VerifyEmailRequest(string Token);
 
     private static async Task<IResult> VerifyEmailJsonAsync(
         VerifyEmailRequest req,
@@ -224,14 +221,13 @@ public static class AuthEndpoints
         if (!TryValidate(req, out var errors)) return Results.ValidationProblem(errors);
 
         await auth.ResendVerificationAsync(req.Email, ct);
-        // Always 200 to avoid revealing account existence
         return Results.Ok(new { success = true });
     }
 
     private static async Task<IResult> GoogleSignInAsync(
         GoogleCallbackRequest req,
         AuthService auth,
-        IOptions<Configuration.GoogleOptions> google,
+        IOptions<GoogleOptions> google,
         CancellationToken ct)
     {
         var clientId = google.Value.ClientId;
@@ -326,14 +322,12 @@ public static class AuthEndpoints
             return Results.BadRequest(new { code = "INVALID_FILE", error = "No file uploaded or file is empty" });
         }
 
-        // Validate file type (images only)
         var allowedTypes = new[] { "image/jpeg", "image/png", "image/gif", "image/webp" };
         if (!allowedTypes.Contains(file.ContentType.ToLowerInvariant()))
         {
             return Results.BadRequest(new { code = "INVALID_FILE_TYPE", error = "Only JPEG, PNG, GIF, and WEBP images are allowed" });
         }
 
-        // Validate file header magic bytes
         using (var readStream = file.OpenReadStream())
         {
             if (!IsValidImageHeader(readStream))
@@ -342,13 +336,11 @@ public static class AuthEndpoints
             }
         }
 
-        // Validate size (5MB max)
         if (file.Length > 5 * 1024 * 1024)
         {
             return Results.BadRequest(new { code = "FILE_TOO_LARGE", error = "File size exceeds 5MB limit" });
         }
 
-        // Ensure directories exist
         var webRoot = env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot");
         var avatarsDir = Path.Combine(webRoot, "avatars");
         if (!Directory.Exists(avatarsDir))
@@ -356,22 +348,17 @@ public static class AuthEndpoints
             Directory.CreateDirectory(avatarsDir);
         }
 
-        // Unique filename: unique_user_{uid}_{timestamp}.{ext}
         var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (string.IsNullOrEmpty(ext)) ext = ".png"; // default
+        if (string.IsNullOrEmpty(ext)) ext = ".png";
         var filename = $"avatar_{uid}_{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}{ext}";
         var filepath = Path.Combine(avatarsDir, filename);
 
-        // Save file
         await using (var stream = new FileStream(filepath, FileMode.Create))
         {
             await file.CopyToAsync(stream, ct);
         }
 
-        // Public URL of the avatar: /avatars/filename
         var avatarUrl = $"/avatars/{filename}";
-
-        // Save URL to database
         var (ok, code, user) = await auth.UpdateAvatarAsync(uid, avatarUrl, webRoot, ct);
         if (ok && user is not null) return Results.Ok(user);
 
@@ -385,17 +372,13 @@ public static class AuthEndpoints
         var bytesRead = stream.Read(header, 0, 12);
         if (bytesRead < 12) return false;
 
-        // JPEG: FF D8 FF
         if (header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF) return true;
 
-        // PNG: 89 50 4E 47 0D 0A 1A 0A
         if (header[0] == 0x89 && header[1] == 0x50 && header[2] == 0x4E && header[3] == 0x47 &&
             header[4] == 0x0D && header[5] == 0x0A && header[6] == 0x1A && header[7] == 0x0A) return true;
 
-        // GIF: 47 49 46 38 ("GIF8")
-        if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x38) return true;
+        if (header[0] == 0x47 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x48) return true;
 
-        // WEBP: RIFF....WEBP (52 49 46 46 .... 57 45 42 50)
         if (header[0] == 0x52 && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46 &&
             header[8] == 0x57 && header[9] == 0x45 && header[10] == 0x42 && header[11] == 0x50) return true;
 

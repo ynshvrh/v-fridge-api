@@ -7,13 +7,14 @@ using Microsoft.IdentityModel.Tokens;
 using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
-using VFridge.Api.Endpoints;
 using VFridge.Api.Features.Analytics;
+using VFridge.Api.Features.Auth;
 using VFridge.Api.Features.Chat;
 using VFridge.Api.Features.Fridges;
 using VFridge.Api.Features.MealPlanning;
 using VFridge.Api.Features.Nutrition;
 using VFridge.Api.Features.Products;
+using VFridge.Api.Features.SavedRecipes;
 using VFridge.Api.Features.Shopping;
 using VFridge.Api.Infrastructure;
 using VFridge.Api.Services;
@@ -199,6 +200,8 @@ builder.Services.AddScoped<IShoppingService, ShoppingService>();
 builder.Services.AddScoped<IMealPlanService, MealPlanService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
+builder.Services.AddScoped<ISavedRecipeService, SavedRecipeService>();
+builder.Services.AddScoped<IAuthFeatureService, AuthService>();
 
 // Daily 09:00 Europe/Kyiv: expiry digests + anti-spam cleanup of unverified accounts.
 builder.Services.AddSingleton<DailyMaintenanceWorker>();
