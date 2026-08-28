@@ -10,7 +10,9 @@ using VFridge.Api.Data;
 using VFridge.Api.Endpoints;
 using VFridge.Api.Features.Chat;
 using VFridge.Api.Features.Fridges;
+using VFridge.Api.Features.MealPlanning;
 using VFridge.Api.Features.Products;
+using VFridge.Api.Features.Shopping;
 using VFridge.Api.Infrastructure;
 using VFridge.Api.Services;
 
@@ -191,6 +193,8 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<FridgeContext>();
 builder.Services.AddScoped<IProductsService, ProductsService>();
 builder.Services.AddScoped<IFridgeService, FridgeService>();
+builder.Services.AddScoped<IShoppingService, ShoppingService>();
+builder.Services.AddScoped<IMealPlanService, MealPlanService>();
 
 // Daily 09:00 Europe/Kyiv: expiry digests + anti-spam cleanup of unverified accounts.
 builder.Services.AddSingleton<DailyMaintenanceWorker>();
