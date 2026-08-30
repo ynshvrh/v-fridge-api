@@ -54,6 +54,31 @@ public sealed class VChefAiChatService(
                 return null;
             }
 
+            // Normalize and parse all ingredients cleanly
+            var parsedIngredients = recipe.Ingredients
+                .Select(i => IngredientDeductionHelper.Parse(
+                    i.Name,
+                    i.Quantity?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    i.Unit))
+                .ToList();
+
+            var portions = recipe.Servings > 0 ? recipe.Servings : 2;
+
+            // Deterministic Nutrition Calculation (fall back or validate)
+            int cal = recipe.Calories;
+            int prot = (int)Math.Round(recipe.ProteinGrams);
+            int fat = (int)Math.Round(recipe.FatGrams);
+            int carbs = (int)Math.Round(recipe.CarbsGrams);
+
+            if (cal <= 0 || (prot == 0 && fat == 0 && carbs == 0))
+            {
+                var calc = NutritionCalculator.CalculateNutrition(parsedIngredients, portions);
+                cal = calc.Calories;
+                prot = (int)Math.Round(calc.Protein);
+                fat = (int)Math.Round(calc.Fat);
+                carbs = (int)Math.Round(calc.Carbs);
+            }
+
             var structuredResponse = new
             {
                 message = $"Ось чудовий рецепт на основі ваших продуктів: {recipe.Title}",
@@ -61,23 +86,31 @@ public sealed class VChefAiChatService(
                 {
                     name = recipe.Title,
                     description = recipe.Description,
-                    ingredients = recipe.Ingredients.Select(i => 
-                        i.Quantity.HasValue ? $"{i.Quantity.Value}{i.Unit} {i.Name}" : i.Name).ToList(),
+                    ingredients = parsedIngredients.Select(i =>
+                        i.Quantity.HasValue && !string.IsNullOrWhiteSpace(i.Unit)
+                            ? $"{i.Quantity.Value} {i.Unit} {i.CleanName}"
+                            : (i.Quantity.HasValue ? $"{i.Quantity.Value} шт {i.CleanName}" : i.CleanName))
+                        .ToList(),
                     steps = recipe.Steps,
-                    calories = recipe.Calories,
-                    protein = (int)Math.Round(recipe.ProteinGrams),
-                    fat = (int)Math.Round(recipe.FatGrams),
-                    carbs = (int)Math.Round(recipe.CarbsGrams),
-                    portions = recipe.Servings > 0 ? recipe.Servings : 2
+                    calories = cal,
+                    protein = prot,
+                    fat = fat,
+                    carbs = carbs,
+                    portions = portions
                 },
                 suggestedShoppingItems = recipe.Ingredients
-                    .Where(i => !i.InFridge)
-                    .Select(i => new
+                    .Zip(parsedIngredients, (raw, parsed) => (raw, parsed))
+                    .Where(pair => !pair.raw.InFridge)
+                    .Select(pair => new
                     {
-                        name = i.Name,
-                        quantity = i.Quantity ?? 1,
-                        unit = i.Unit ?? "шт",
-                        category = "other"
+                        name = pair.parsed.CleanName,
+                        quantity = pair.parsed.Quantity ?? 1,
+                        unit = IngredientDeductionHelper.NormalizeUnit(pair.parsed.Unit) switch
+                        {
+                            "" or null => "шт",
+                            var u => u
+                        },
+                        category = CategoryInferrer.InferCategory(pair.parsed.CleanName)
                     })
                     .ToList()
             };

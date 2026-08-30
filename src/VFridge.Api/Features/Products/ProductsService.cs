@@ -305,13 +305,28 @@ public class ProductsService : IProductsService
         var fat = req.FatPerPortion ?? 0;
         var carbs = req.CarbsPerPortion ?? 0;
 
-        if (cal == 0 && prot == 0 && fat == 0 && carbs == 0 && !string.IsNullOrWhiteSpace(req.Description))
+        if (cal == 0 && prot == 0 && fat == 0 && carbs == 0)
         {
-            var parsedNutrition = IngredientDeductionHelper.ParseNutrition(req.Description);
-            cal = parsedNutrition.Calories;
-            prot = parsedNutrition.Protein;
-            fat = parsedNutrition.Fat;
-            carbs = parsedNutrition.Carbs;
+            if (!string.IsNullOrWhiteSpace(req.Description))
+            {
+                var parsedNutrition = IngredientDeductionHelper.ParseNutrition(req.Description);
+                cal = parsedNutrition.Calories;
+                prot = parsedNutrition.Protein;
+                fat = parsedNutrition.Fat;
+                carbs = parsedNutrition.Carbs;
+            }
+
+            if (cal == 0 && prot == 0 && fat == 0 && carbs == 0 && ingredientsToDeduct.Count > 0)
+            {
+                var parsedIngs = ingredientsToDeduct
+                    .Select(i => IngredientDeductionHelper.Parse(i))
+                    .ToList();
+                var calculated = NutritionCalculator.CalculateNutrition(parsedIngs, req.Portions);
+                cal = calculated.Calories;
+                prot = calculated.Protein;
+                fat = calculated.Fat;
+                carbs = calculated.Carbs;
+            }
         }
 
         string descText = req.Description?.Trim() ?? string.Empty;

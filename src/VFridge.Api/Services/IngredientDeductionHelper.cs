@@ -13,10 +13,25 @@ public sealed record ParsedIngredient(
 
 public static class IngredientDeductionHelper
 {
-    // Regex matching leading quantity and optional unit, e.g. "500g flour", "2.5 pcs eggs", "200 g sugar"
-    private static readonly Regex LeadingQtyRegex = new(
-        @"^\s*(\d+(?:[\.,]\d+)?)\s*([a-zA-Zа-яА-ЯіїєІЇЄ]+)?\s+(.+)$",
+    // Fraction regex: "1/2 лимона", "3/4 склянки"
+    private static readonly Regex FractionRegex = new(
+        @"^\s*(\d+)\s*/\s*(\d+)\s*([a-zA-Zа-яА-ЯіїєІЇЄ\.\s]*?)\s+(.+)$",
         RegexOptions.Compiled);
+
+    // Range regex: "1-2 зубчики часнику"
+    private static readonly Regex RangeRegex = new(
+        @"^\s*(\d+(?:[\.,]\d+)?)\s*-\s*(\d+(?:[\.,]\d+)?)\s*([a-zA-Zа-яА-ЯіїєІЇЄ\.\s]*?)\s+(.+)$",
+        RegexOptions.Compiled);
+
+    // Leading quantity + optional unit + remainder: "200г борошна", "2 шт моркви", "1 морква", "3 яйця"
+    private static readonly Regex LeadingQtyRegex = new(
+        @"^\s*(\d+(?:[\.,]\d+)?)\s*([a-zA-Zа-яА-ЯіїєІЇЄ\.]+)?(?:\s+(.+))?$",
+        RegexOptions.Compiled);
+
+    // Pinch phrases: "дрібка солі", "щепотка перцю"
+    private static readonly Regex PinchRegex = new(
+        @"^\s*(дрібка|щепотка|pinch)\s+(.+)$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static ParsedIngredient Parse(string rawName, string? rawQuantity = null, string? rawUnit = null)
     {
@@ -30,39 +45,122 @@ public static class IngredientDeductionHelper
         }
 
         var unit = string.IsNullOrWhiteSpace(rawUnit) ? null : rawUnit.Trim();
+        var cleanName = trimmedName;
 
         if (qty is null)
         {
-            var match = LeadingQtyRegex.Match(trimmedName);
-            if (match.Success)
+            var pinchMatch = PinchRegex.Match(trimmedName);
+            if (pinchMatch.Success)
             {
-                if (decimal.TryParse(match.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var extractedQty))
+                qty = 1;
+                unit ??= "дрібка";
+                cleanName = pinchMatch.Groups[2].Value;
+            }
+            else
+            {
+                var fracMatch = FractionRegex.Match(trimmedName);
+                if (fracMatch.Success &&
+                    decimal.TryParse(fracMatch.Groups[1].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var num) &&
+                    decimal.TryParse(fracMatch.Groups[2].Value, NumberStyles.Number, CultureInfo.InvariantCulture, out var denom) && denom > 0)
                 {
-                    qty = extractedQty;
-                    var extractedUnit = match.Groups[2].Value;
-                    if (!string.IsNullOrWhiteSpace(extractedUnit))
+                    qty = num / denom;
+                    var potUnit = fracMatch.Groups[3].Value.Trim();
+                    if (!string.IsNullOrWhiteSpace(potUnit) && string.IsNullOrWhiteSpace(unit)) unit = potUnit;
+                    cleanName = fracMatch.Groups[4].Value;
+                }
+                else
+                {
+                    var rangeMatch = RangeRegex.Match(trimmedName);
+                    if (rangeMatch.Success &&
+                        decimal.TryParse(rangeMatch.Groups[2].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var upper))
                     {
-                        unit ??= extractedUnit;
+                        qty = upper;
+                        var potUnit = rangeMatch.Groups[3].Value.Trim();
+                        if (!string.IsNullOrWhiteSpace(potUnit) && string.IsNullOrWhiteSpace(unit)) unit = potUnit;
+                        cleanName = rangeMatch.Groups[4].Value;
                     }
-                    trimmedName = match.Groups[3].Value.Trim();
+                    else
+                    {
+                        var qtyMatch = LeadingQtyRegex.Match(trimmedName);
+                        if (qtyMatch.Success &&
+                            decimal.TryParse(qtyMatch.Groups[1].Value.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out var extractedQty))
+                        {
+                            qty = extractedQty;
+                            var potUnit = qtyMatch.Groups[2].Value.Trim();
+                            var remainder = qtyMatch.Groups[3].Value.Trim();
+
+                            if (!string.IsNullOrWhiteSpace(remainder))
+                            {
+                                if (!string.IsNullOrWhiteSpace(potUnit)) unit ??= potUnit;
+                                cleanName = remainder;
+                            }
+                            else if (!string.IsNullOrWhiteSpace(potUnit) && IsLikelyUnit(potUnit))
+                            {
+                                unit ??= potUnit;
+                                cleanName = string.Empty;
+                            }
+                            else if (!string.IsNullOrWhiteSpace(potUnit) && !IsLikelyUnit(potUnit))
+                            {
+                                // E.g. "1 морква" where "морква" was caught in group 2
+                                cleanName = potUnit;
+                                unit ??= "pcs";
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        return new ParsedIngredient(rawName, trimmedName, qty, unit);
+        cleanName = CleanNoise(cleanName);
+        if (string.IsNullOrWhiteSpace(cleanName))
+        {
+            cleanName = CleanNoise(trimmedName);
+        }
+
+        return new ParsedIngredient(rawName, cleanName, qty, unit);
+    }
+
+    private static bool IsLikelyUnit(string s)
+    {
+        var lower = s.Trim().TrimEnd('.').ToLowerInvariant();
+        return lower is "г" or "g" or "гр" or "грам" or "грамм" or "кг" or "kg" or "мл" or "ml" or "л" or "l"
+            or "шт" or "pcs" or "pc" or "ст" or "стл" or "чл" or "ст.л" or "ч.л" or "tbsp" or "tsp"
+            or "зубчик" or "зубчики" or "дрібка" or "щепотка";
+    }
+
+    private static string CleanNoise(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return string.Empty;
+
+        var n = name.Trim().Trim('-', '–', '—', ':', ',', '.');
+        string[] noiseWords = [
+            "великої", "великий", "велика", "великі", "великих",
+            "середньої", "середній", "середня", "середні", "середніх",
+            "маленької", "маленький", "маленька", "маленькі", "маленьких",
+            "свіжого", "свіжий", "свіжа", "свіжі", "свіжих",
+            "стиглого", "стиглий", "стигла", "стиглі", "стиглих"
+        ];
+
+        foreach (var word in noiseWords)
+        {
+            if (n.StartsWith(word + " ", StringComparison.OrdinalIgnoreCase))
+            {
+                n = n[(word.Length + 1)..].Trim();
+            }
+        }
+
+        return n.Trim('-', '–', '—', ':', ',', '.');
     }
 
     /// <summary>
     /// Computes the missing quantity of an ingredient after deducting what is already in the fridge and shopping list.
-    /// Returns null if the item is fully covered by the fridge/shopping list.
-    /// Returns missing quantity (or ingredient quantity if no numeric fridge qty available) if item is needed.
     /// </summary>
     public static (bool IsCovered, decimal? MissingQuantity, string? Unit) CalculateMissing(
         ParsedIngredient ingredient,
         IReadOnlyList<Product> fridgeProducts,
         IReadOnlyList<ShoppingItem> existingShoppingItems)
     {
-        var targetName = ingredient.CleanName.ToLowerInvariant();
+        var targetName = ingredient.CleanName;
 
         // 1. Check Fridge Products
         var matchingProducts = fridgeProducts
@@ -77,7 +175,8 @@ public static class IngredientDeductionHelper
         {
             if (p.Quantity is { } q && q > 0)
             {
-                fridgeQtySum += q;
+                var converted = ConvertQuantity(q, p.Unit, ingredient.Unit);
+                fridgeQtySum += converted;
                 hasFridgeQty = true;
             }
         }
@@ -94,7 +193,8 @@ public static class IngredientDeductionHelper
         {
             if (s.Quantity is { } q && q > 0)
             {
-                shoppingQtySum += q;
+                var converted = ConvertQuantity(q, s.Unit, ingredient.Unit);
+                shoppingQtySum += converted;
             }
         }
 
@@ -105,41 +205,55 @@ public static class IngredientDeductionHelper
         {
             if (totalAvailable >= neededQty)
             {
-                // Fully covered
                 return (true, null, ingredient.Unit);
             }
 
-            // If a matching item is already in fridge or shopping list without explicit numeric qty (or shopping list item exists),
-            // consider it covered to avoid adding duplicates to shopping list.
             if ((hasFridgeProduct && !hasFridgeQty) || (hasShoppingProduct && shoppingQtySum == 0))
             {
                 return (true, null, ingredient.Unit);
             }
 
             var missing = neededQty - totalAvailable;
-
-            // If we have some quantity in fridge/shopping list, but not enough
             return (missing <= 0, missing > 0 ? missing : null, ingredient.Unit);
         }
 
         // Case B: Ingredient does NOT specify numeric quantity (e.g. "Milk", "Salt")
-        // If we already have this product in fridge or shopping list, consider it covered
         if (hasFridgeProduct || hasShoppingProduct)
         {
             return (true, null, ingredient.Unit);
         }
 
-        // Otherwise, not covered
         return (false, null, ingredient.Unit);
     }
 
     public static bool IsNameMatch(string sourceName, string targetName)
     {
+        if (string.IsNullOrWhiteSpace(sourceName) || string.IsNullOrWhiteSpace(targetName))
+            return false;
+
         var src = sourceName.Trim().ToLowerInvariant();
         var tgt = targetName.Trim().ToLowerInvariant();
 
         if (src == tgt) return true;
         if (src.Contains(tgt) || tgt.Contains(src)) return true;
+
+        // Match by Ukrainian word stem (min 3 chars)
+        var srcWords = src.Split([' ', ',', '.', '-', '(', ')'], StringSplitOptions.RemoveEmptyEntries);
+        var tgtWords = tgt.Split([' ', ',', '.', '-', '(', ')'], StringSplitOptions.RemoveEmptyEntries);
+
+        foreach (var sw in srcWords)
+        {
+            if (sw.Length < 3) continue;
+            var stemS = sw.Length >= 3 ? sw[..3] : sw;
+
+            foreach (var tw in tgtWords)
+            {
+                if (tw.Length < 3) continue;
+                var stemT = tw.Length >= 3 ? tw[..3] : tw;
+
+                if (stemS == stemT) return true;
+            }
+        }
 
         return false;
     }
@@ -150,11 +264,15 @@ public static class IngredientDeductionHelper
         var u = unit.Trim().ToLowerInvariant().TrimEnd('.');
         return u switch
         {
-            "кг" or "kg" or "кілограм" or "килограмм" or "килограм" => "kg",
-            "г" or "g" or "грам" or "грамм" or "гр" => "g",
-            "л" or "l" or "літр" or "литр" => "l",
-            "мл" or "ml" or "мілілітр" or "миллилитр" => "ml",
-            "шт" or "pcs" or "штук" or "pc" or "piece" or "pieces" => "pcs",
+            "кг" or "kg" or "кілограм" or "кілограмів" or "килограмм" or "килограм" => "kg",
+            "г" or "g" or "грам" or "грамів" or "грамм" or "гр" => "g",
+            "л" or "l" or "літр" or "літрів" or "литр" => "l",
+            "мл" or "ml" or "мілілітр" or "мілілітрів" or "миллилитр" => "ml",
+            "шт" or "pcs" or "штук" or "штуки" or "штука" or "pc" or "piece" or "pieces" => "pcs",
+            "ст.л" or "ст. л" or "ст л" or "столова ложка" or "столові ложки" or "tbsp" => "ст.л.",
+            "ч.л" or "ч. л" or "ч л" or "чайна ложка" or "чайні ложки" or "tsp" => "ч.л.",
+            "дрібка" or "щепотка" or "pinch" => "дрібка",
+            "зубчик" or "зубчики" or "зубчиків" or "clove" or "cloves" => "зубчик",
             _ => u
         };
     }

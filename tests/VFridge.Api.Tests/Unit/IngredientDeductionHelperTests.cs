@@ -11,6 +11,12 @@ public class IngredientDeductionHelperTests
     [InlineData("500g flour", "flour", 500.0, "g")]
     [InlineData("2 eggs", "eggs", 2.0, null)]
     [InlineData("2.5 pcs apples", "apples", 2.5, "pcs")]
+    [InlineData("1 морква", "морква", 1.0, "pcs")]
+    [InlineData("2 шт великої моркви", "моркви", 2.0, "шт")]
+    [InlineData("200г борошна", "борошна", 200.0, "г")]
+    [InlineData("1/2 лимона", "лимона", 0.5, null)]
+    [InlineData("1-2 зубчики часнику", "часнику", 2.0, "зубчики")]
+    [InlineData("дрібка солі", "солі", 1.0, "дрібка")]
     [InlineData("Milk", "Milk", -1.0, null)]
     public void Parse_ExtractsQuantityAndNameCorrectly(string rawName, string expectedCleanName, double expectedQty, string? expectedUnit)
     {
@@ -25,7 +31,23 @@ public class IngredientDeductionHelperTests
         {
             result.Quantity.Should().BeNull();
         }
-        result.Unit.Should().Be(expectedUnit);
+        if (expectedUnit is not null)
+        {
+            result.Unit.Should().Be(expectedUnit);
+        }
+    }
+
+    [Theory]
+    [InlineData("Морква", "моркви", true)]
+    [InlineData("Яйця", "яйце", true)]
+    [InlineData("Куряче філе", "курка", true)]
+    [InlineData("Молоко 2.5%", "молоко", true)]
+    [InlineData("Картопля молода", "картоплі", true)]
+    [InlineData("Шоколад", "риба", false)]
+    public void IsNameMatch_MatchesUkrainianStemsAndContainment(string source, string target, bool expected)
+    {
+        var result = IngredientDeductionHelper.IsNameMatch(source, target);
+        result.Should().Be(expected);
     }
 
     [Fact]

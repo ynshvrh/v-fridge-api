@@ -50,7 +50,8 @@ public sealed record CookRecipeRequest(
     decimal? FatPerPortion = null,
     decimal? CarbsPerPortion = null,
     int? ExpiryDays = 3,
-    int? SavedRecipeId = null);
+    int? SavedRecipeId = null,
+    bool IgnoreOptionalMissing = false);
 
 public sealed record CookRecipeResponse(
     ProductResponse PreparedMealProduct,
