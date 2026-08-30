@@ -38,12 +38,18 @@ public sealed record DeductedIngredientSummary(
     string Unit,
     bool FullyConsumed);
 
+public sealed record CookIngredientDto(
+    string Name,
+    decimal? Quantity = null,
+    string? Unit = null);
+
 public sealed record CookRecipeRequest(
     [property: Required, MinLength(2, ErrorMessage = "Recipe name is too short")]
     string Name,
     string? Description = null,
     [property: Range(1, 100, ErrorMessage = "Portions must be between 1 and 100")]
     int Portions = 1,
+    IReadOnlyList<CookIngredientDto>? StructuredIngredients = null,
     IReadOnlyList<string>? Ingredients = null,
     int? CaloriesPerPortion = null,
     decimal? ProteinPerPortion = null,

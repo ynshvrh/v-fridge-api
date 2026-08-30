@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using VFridge.Api.Contracts;
 
 namespace VFridge.Api.Services;
@@ -23,90 +24,91 @@ public static class CategoryInferrer
         }
 
         var name = ingredientName.Trim().ToLowerInvariant();
+        var tokens = name.Split([' ', ',', '.', '-', '(', ')', '%', '"', '\''], StringSplitOptions.RemoveEmptyEntries);
 
-        // 1. Prepared meals / ready dishes (борщ, суп, рагу, плов, запіканка, котлети, омлет, голубці, вареники, деруни, сирники, млинці, готова страва)
-        if (ContainsAny(name, "борщ", "суп", "рагу", "плов", "запіканка", "котлет", "омлет", "голубц", "вареник", "дерун", "сирник", "млинц", "готова страва", "готові страви", "готовий", "prepared meal", "cooked meal"))
+        // 1. Prepared meals / ready dishes
+        if (ContainsWord(name, tokens, "борщ", "суп", "рагу", "плов", "запіканка", "котлети", "котлета", "омлет", "голубці", "вареники", "деруни", "сирники", "млинці", "готова страва", "готові страви", "готовий", "prepared meal", "cooked meal"))
         {
             return ProductCategories.PreparedMeals;
         }
 
-        // 2. Sauces, oils & spices (олії, спеції, соуси, сіль, перець, олія, оливкова олія, гірчиця, майонез, кетчуп)
-        if (ContainsAny(name, "сіль", "salt", "олія", "oil", "перець", "pepper", "соус", "sauce", "масло рослинне", "оливкова",
-            "оливка", "оливкова олія", "паприка", "спеції", "spice", "кориця", "оцет", "vinegar", "майонез", "mayo", "кетчуп",
-            "ketchup", "гірчиця", "mustard", "соєвий", "soy", "приправа", "лавровий", "каррі", "curry", "орегано", "базилік", "паприка", "куркума"))
+        // 2. Sauces, oils & spices
+        if (ContainsWord(name, tokens, "сіль", "salt", "олія", "oil", "перець", "pepper", "соус", "sauce", "масло рослинне", "оливкова олія",
+            "паприка", "спеції", "spice", "кориця", "оцет", "vinegar", "майонез", "mayo", "кетчуп",
+            "ketchup", "гірчиця", "mustard", "соєвий соус", "приправа", "лавровий лист", "каррі", "curry", "орегано", "базилік", "куркума", "сироп", "syrup"))
         {
             return ProductCategories.Sauces;
         }
 
-        // 3. Dairy (молоко, сир, масло, сметана, кефір, йогурт, творог, вершки)
-        if (ContainsAny(name, "молоко", "milk", "сир", "cheese", "вершкове масло", "butter", "сметана", "sour cream",
+        // 3. Dairy
+        if (ContainsWord(name, tokens, "молоко", "milk", "сир", "cheese", "вершкове масло", "butter", "сметана", "sour cream",
             "кефір", "kefir", "йогурт", "yogurt", "творог", "cottage cheese", "вершки", "cream", "ряжанка", "моцарела", "пармезан", "сулугуні", "бринза"))
         {
             return ProductCategories.Dairy;
         }
 
-        // 4. Meat & Fish (м'ясо, курка, куряче, фарш, свинина, яловичина, телятина, риба, лосось, тунець, креветки, філе, бекон, ковбаса, сосиски)
-        if (ContainsAny(name, "м'ясо", "meat", "курка", "куряче", "chicken", "фарш", "mince", "свинина", "pork", "яловичина", "beef",
+        // 4. Meat & Fish
+        if (ContainsWord(name, tokens, "м'ясо", "meat", "курка", "куряче", "куряча", "chicken", "фарш", "mince", "свинина", "pork", "яловичина", "beef",
             "телятина", "veal", "риба", "fish", "лосось", "salmon", "тунець", "tuna", "креветки", "shrimp", "філе", "filet", "fillet",
             "бекон", "bacon", "ковбаса", "sausage", "сосиски", "індичка", "turkey", "качка", "duck"))
         {
             return ProductCategories.MeatFish;
         }
 
-        // 5. Vegetables & greens (цибуля, часник, морква, картопля, помідор, томат, огірок, капуста, перець болгарський, зелень, петрушка, кріп, шпинат, салат, кабачок, баклажан, брокколі, цвітна капуста, гриби, печериці)
-        if (ContainsAny(name, "цибуля", "onion", "часник", "garlic", "морква", "carrot", "картопля", "potato", "помідор", "томат", "tomato",
-            "огірок", "cucumber", "капуста", "cabbage", "зелень", "greens", "петрушка", "parsley", "кріп", "dill", "шпинат", "spinach",
+        // 5. Vegetables & greens
+        if (ContainsWord(name, tokens, "цибуля", "onion", "часник", "garlic", "морква", "carrot", "картопля", "potato", "помідор", "помідори", "томат", "томати", "tomato",
+            "огірок", "огірки", "cucumber", "капуста", "cabbage", "зелень", "greens", "петрушка", "parsley", "кріп", "dill", "шпинат", "spinach",
             "салат", "lettuce", "кабачок", "zucchini", "баклажан", "eggplant", "брокколі", "broccoli", "гриби", "mushroom", "печериці"))
         {
             return ProductCategories.Vegetables;
         }
 
-        // 6. Fruits & berries (яблуко, банан, лимон, лайм, апельсин, мандарин, полуниця, малина, ягоди, груша, виноград, авокадо)
-        if (ContainsAny(name, "яблук", "apple", "банан", "banana", "лимон", "lemon", "лайм", "lime", "апельсин", "orange",
-            "мандарин", "полуниця", "strawberry", "малина", "raspberry", "ягоди", "berries", "груша", "pear", "виноград", "grape", "авокадо", "avocado"))
+        // 6. Fruits & berries
+        if (ContainsWord(name, tokens, "яблуко", "яблука", "apple", "банан", "банани", "banana", "лимон", "lemon", "лайм", "lime", "апельсин", "orange",
+            "мандарин", "полуниця", "strawberry", "малина", "raspberry", "ягоди", "berries", "груша", "pear", "виноград", "grape", "авокадо", "avocado", "персик", "peach"))
         {
             return ProductCategories.Fruits;
         }
 
-        // 7. Bread & Bakery (хліб, батон, булочка, лаваш, піта, тост, багет)
-        if (ContainsAny(name, "хліб", "bread", "батон", "булочка", "bun", "лаваш", "піта", "pita", "багет", "baguette", "круасан"))
+        // 7. Bread & Bakery
+        if (ContainsWord(name, tokens, "хліб", "bread", "батон", "булочка", "булка", "bun", "лаваш", "піта", "pita", "багет", "baguette", "круасан"))
         {
             return ProductCategories.Bakery;
         }
 
-        // 8. Pantry staples (борошно, рис, гречка, макарони, спагеті, паста, цукор, вівсянка, крупа, квасоля, горох, сочевиця, дріжджі, крохмаль)
-        if (ContainsAny(name, "борошно", "flour", "рис", "rice", "гречка", "buckwheat", "макарони", "pasta", "спагеті", "spaghetti",
+        // 8. Pantry staples
+        if (ContainsWord(name, tokens, "борошно", "flour", "рис", "rice", "гречка", "buckwheat", "макарони", "pasta", "спагеті", "spaghetti",
             "цукор", "sugar", "вівсянка", "oats", "oatmeal", "крупа", "квасоля", "beans", "горох", "peas", "сочевиця", "lentils", "дріжджі", "yeast", "крохмаль", "starch"))
         {
             return ProductCategories.Pantry;
         }
 
-        // 9. Drinks (вода, сік, чай, кава, морс, компот)
-        if (ContainsAny(name, "вода", "water", "сік", "juice", "чай", "tea", "кава", "coffee", "морс", "компот"))
+        // 9. Drinks
+        if (ContainsWord(name, tokens, "вода", "water", "сік", "juice", "чай", "tea", "кава", "coffee", "морс", "компот"))
         {
             return ProductCategories.Drinks;
         }
 
-        // 10. Alcohol (вино, пиво, горілка, коньяк, віскі, ром)
-        if (ContainsAny(name, "вино", "wine", "пиво", "beer", "горілка", "vodka", "коньяк", "віскі", "whiskey", "ром", "rum"))
+        // 10. Alcohol
+        if (ContainsWord(name, tokens, "вино", "wine", "пиво", "beer", "горілка", "vodka", "коньяк", "віскі", "whiskey", "ром", "rum"))
         {
             return ProductCategories.Alcohol;
         }
 
-        // 11. Snacks & sweets (шоколад, печиво, цукерки, горіхи, чипси)
-        if (ContainsAny(name, "шоколад", "chocolate", "печиво", "cookie", "biscuits", "цукерки", "candy", "горіхи", "nuts", "чипси", "chips"))
+        // 11. Snacks & sweets
+        if (ContainsWord(name, tokens, "шоколад", "chocolate", "печиво", "cookie", "biscuits", "цукерки", "цукерка", "candy", "горіхи", "nuts", "чипси", "chips", "барбарис"))
         {
             return ProductCategories.Snacks;
         }
 
-        // 12. Frozen (заморожені, заморожена)
-        if (ContainsAny(name, "заморожен", "frozen"))
+        // 12. Frozen
+        if (ContainsWord(name, tokens, "заморожені", "заморожена", "заморожений", "frozen"))
         {
             return ProductCategories.Frozen;
         }
 
-        // 13. Canned & prepared (консерва, тушонка, шпроти, кукурудза консервована, горошок консервований)
-        if (ContainsAny(name, "консерв", "canned", "тушонка", "шпроти"))
+        // 13. Canned & prepared
+        if (ContainsWord(name, tokens, "консерва", "консервований", "консервована", "canned", "тушонка", "шпроти"))
         {
             return ProductCategories.CannedPrepared;
         }
@@ -114,11 +116,30 @@ public static class CategoryInferrer
         return ProductCategories.Other;
     }
 
-    private static bool ContainsAny(string text, params string[] keywords)
+    private static bool ContainsWord(string text, string[] tokens, params string[] keywords)
     {
         foreach (var k in keywords)
         {
-            if (text.Contains(k, StringComparison.OrdinalIgnoreCase)) return true;
+            if (k.Contains(' '))
+            {
+                // Multi-word phrase: match full phrase with word boundaries or substring
+                if (text.Contains(k, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+            else
+            {
+                foreach (var t in tokens)
+                {
+                    if (string.Equals(t, k, StringComparison.OrdinalIgnoreCase))
+                        return true;
+
+                    var stemT = IngredientDeductionHelper.StripEnding(t);
+                    var stemK = IngredientDeductionHelper.StripEnding(k);
+
+                    if (stemT.Length >= 4 && stemK.Length >= 4 && stemT == stemK)
+                        return true;
+                }
+            }
         }
         return false;
     }

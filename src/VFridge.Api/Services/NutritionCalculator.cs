@@ -61,16 +61,17 @@ public static class NutritionCalculator
         ["фета"] = new(264, 14.0, 21.0, 4.1, 30),
         ["сир кисломолочний"] = new(120, 18.0, 5.0, 3.0, 100),
         ["творог"] = new(120, 18.0, 5.0, 3.0, 100),
+        ["домашній сир"] = new(120, 18.0, 5.0, 3.0, 100),
         ["масло"] = new(717, 0.8, 81.0, 0.7, 10),
         ["вершкове масло"] = new(717, 0.8, 81.0, 0.7, 10),
 
         // Grains, Pasta & Bakery
-        ["рис"] = new(130, 2.7, 0.3, 28.0, 100), // Cooked
+        ["рис"] = new(130, 2.7, 0.3, 28.0, 100),
         ["рис басматі"] = new(130, 2.7, 0.3, 28.0, 100),
-        ["гречка"] = new(132, 4.5, 1.0, 25.0, 100), // Cooked
+        ["гречка"] = new(132, 4.5, 1.0, 25.0, 100),
         ["вівсянка"] = new(389, 17.0, 7.0, 66.0, 50),
         ["вівсяні пластівці"] = new(389, 17.0, 7.0, 66.0, 50),
-        ["макарони"] = new(158, 5.8, 0.9, 31.0, 100), // Cooked
+        ["макарони"] = new(158, 5.8, 0.9, 31.0, 100),
         ["паста"] = new(158, 5.8, 0.9, 31.0, 100),
         ["спагеті"] = new(158, 5.8, 0.9, 31.0, 100),
         ["кускус"] = new(112, 3.8, 0.2, 23.0, 100),
@@ -90,11 +91,13 @@ public static class NutritionCalculator
         ["цибуля"] = new(40, 1.1, 0.1, 9.3, 100),
         ["ріпчаста цибуля"] = new(40, 1.1, 0.1, 9.3, 100),
         ["зелена цибуля"] = new(32, 1.8, 0.2, 7.3, 20),
-        ["часник"] = new(149, 6.4, 0.5, 33.0, 5), // 1 clove ~ 5g
+        ["часник"] = new(149, 6.4, 0.5, 33.0, 5),
         ["помідор"] = new(18, 0.9, 0.2, 3.9, 120),
+        ["помідори"] = new(18, 0.9, 0.2, 3.9, 120),
         ["томати"] = new(18, 0.9, 0.2, 3.9, 120),
         ["томатна паста"] = new(82, 4.3, 0.5, 19.0, 30),
         ["огірок"] = new(15, 0.7, 0.1, 3.6, 100),
+        ["огірки"] = new(15, 0.7, 0.1, 3.6, 100),
         ["капуста"] = new(25, 1.3, 0.1, 5.8, 100),
         ["пекінська капуста"] = new(16, 1.2, 0.2, 3.2, 100),
         ["броколі"] = new(34, 2.8, 0.4, 6.6, 100),
@@ -115,14 +118,18 @@ public static class NutritionCalculator
 
         // Fruits
         ["яблуко"] = new(52, 0.3, 0.2, 14.0, 150),
+        ["яблука"] = new(52, 0.3, 0.2, 14.0, 150),
         ["банан"] = new(89, 1.1, 0.3, 23.0, 120),
+        ["банани"] = new(89, 1.1, 0.3, 23.0, 120),
         ["лимон"] = new(29, 1.1, 0.3, 9.0, 80),
         ["апельсин"] = new(47, 0.9, 0.1, 12.0, 150),
+        ["персик"] = new(39, 0.9, 0.3, 9.5, 120),
         ["полуниця"] = new(32, 0.7, 0.3, 7.7, 100),
+        ["малина"] = new(52, 1.2, 0.6, 12.0, 100),
         ["ягоди"] = new(40, 1.0, 0.4, 9.0, 100),
 
         // Oils & Sauces
-        ["олія"] = new(884, 0.0, 100.0, 0.0, 15), // 1 tbsp ~ 15ml
+        ["олія"] = new(884, 0.0, 100.0, 0.0, 15),
         ["соняшникова олія"] = new(884, 0.0, 100.0, 0.0, 15),
         ["оливкова олія"] = new(884, 0.0, 100.0, 0.0, 15),
         ["цукор"] = new(387, 0.0, 0.0, 100.0, 10),
@@ -142,29 +149,42 @@ public static class NutritionCalculator
 
         var lower = cleanIngredientName.Trim().ToLowerInvariant();
 
-        // Exact match
+        // 1. Exact match
         if (Database.TryGetValue(lower, out var exact))
         {
             return exact;
         }
 
-        // Partial match with priority for longest matching key
-        NutritionPer100g? bestMatch = null;
-        int bestLength = 0;
+        // 2. Token / word boundary matching (check 2-word combinations first, then single tokens)
+        var tokens = lower.Split([' ', ',', '.', '-', '(', ')', '%', '"', '\''], StringSplitOptions.RemoveEmptyEntries);
 
-        foreach (var (key, value) in Database)
+        for (int i = 0; i < tokens.Length - 1; i++)
         {
-            if (lower.Contains(key) || key.Contains(lower))
+            var pair = $"{tokens[i]} {tokens[i + 1]}";
+            if (Database.TryGetValue(pair, out var pairMatch))
+                return pairMatch;
+        }
+
+        foreach (var t in tokens)
+        {
+            if (Database.TryGetValue(t, out var tokenMatch))
+                return tokenMatch;
+
+            // Safe stem matching against database keys (minimum stem length: 4)
+            var stem = IngredientDeductionHelper.StripEnding(t);
+            if (stem.Length >= 4)
             {
-                if (key.Length > bestLength)
+                foreach (var (key, val) in Database)
                 {
-                    bestMatch = value;
-                    bestLength = key.Length;
+                    if (key.Contains(' ')) continue;
+                    var keyStem = IngredientDeductionHelper.StripEnding(key);
+                    if (keyStem.Length >= 4 && keyStem == stem)
+                        return val;
                 }
             }
         }
 
-        return bestMatch;
+        return null;
     }
 
     public static (int Calories, decimal Protein, decimal Fat, decimal Carbs) CalculateNutrition(
@@ -215,7 +235,7 @@ public static class NutritionCalculator
         {
             "g" => qty,
             "kg" => qty * 1000,
-            "ml" => qty, // roughly 1g/ml for water/milk
+            "ml" => qty,
             "l" => qty * 1000,
             "pcs" or "шт" => qty * defaultPieceGrams,
             "ст.л." => qty * 15,

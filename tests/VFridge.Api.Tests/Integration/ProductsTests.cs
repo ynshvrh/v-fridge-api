@@ -214,6 +214,40 @@ public class ProductsTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task CookRecipe_WithStructuredIngredients_DeductsAndCreatesPreparedMeal()
+    {
+        var token = await BootstrapVerifiedUserAsync("cookstructuser", "cookstruct@example.com", "Secret123!");
+        _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+        await _client.PostAsJsonAsync("/products", new { name = "Яйця курячі", quantity = 10, unit = "pcs", category = "dairy" });
+        await _client.PostAsJsonAsync("/products", new { name = "Молоко 2.5%", quantity = 1000, unit = "ml", category = "dairy" });
+
+        var cookResp = await _client.PostAsJsonAsync("/products/cook", new
+        {
+            name = "Пишний омлет",
+            portions = 2,
+            structuredIngredients = new[]
+            {
+                new { name = "Яйця", quantity = 4, unit = "pcs" },
+                new { name = "Молоко", quantity = 150, unit = "ml" }
+            },
+            expiryDays = 2
+        });
+
+        cookResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var cookBody = await cookResp.Content.ReadFromJsonAsync<JsonElement>();
+        cookBody.GetProperty("deductions").GetArrayLength().Should().Be(2);
+
+        var meal = cookBody.GetProperty("preparedMealProduct");
+        meal.GetProperty("name").GetString().Should().Be("Пишний омлет");
+        meal.GetProperty("quantity").GetDecimal().Should().Be(2);
+
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        var eggs = products.EnumerateArray().First(p => p.GetProperty("name").GetString() == "Яйця курячі");
+        eggs.GetProperty("quantity").GetDecimal().Should().Be(6); // 10 - 4
+    }
+
+    [Fact]
     public async Task ConsumeProduct_DecrementsPortion_AndLogsToNutritionDiary()
     {
         // 1. Add prepared meal

@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using VFridge.Api.Auth;
@@ -209,10 +210,25 @@ public class ProductsService : IProductsService
             .Where(p => p.FridgeId == fridgeId)
             .ToListAsync(ct);
 
-        var ingredientsToDeduct = new List<string>();
-        if (req.Ingredients is { Count: > 0 })
+        var ingredientsToDeduct = new List<ParsedIngredient>();
+        if (req.StructuredIngredients is { Count: > 0 })
         {
-            ingredientsToDeduct.AddRange(req.Ingredients);
+            foreach (var sIng in req.StructuredIngredients)
+            {
+                if (string.IsNullOrWhiteSpace(sIng.Name)) continue;
+                ingredientsToDeduct.Add(IngredientDeductionHelper.Parse(
+                    sIng.Name,
+                    sIng.Quantity?.ToString(CultureInfo.InvariantCulture),
+                    sIng.Unit));
+            }
+        }
+        else if (req.Ingredients is { Count: > 0 })
+        {
+            foreach (var rawIng in req.Ingredients)
+            {
+                if (string.IsNullOrWhiteSpace(rawIng)) continue;
+                ingredientsToDeduct.Add(IngredientDeductionHelper.Parse(rawIng));
+            }
         }
         else if (req.SavedRecipeId is int savedId)
         {
@@ -220,22 +236,26 @@ public class ProductsService : IProductsService
             if (savedRecipe is not null)
             {
                 var ings = System.Text.Json.JsonSerializer.Deserialize<List<string>>(savedRecipe.IngredientsJson);
-                if (ings is not null) ingredientsToDeduct.AddRange(ings);
+                if (ings is not null)
+                {
+                    foreach (var rawIng in ings)
+                    {
+                        if (string.IsNullOrWhiteSpace(rawIng)) continue;
+                        ingredientsToDeduct.Add(IngredientDeductionHelper.Parse(rawIng));
+                    }
+                }
             }
         }
 
         // Strict ingredient verification
         var missingRequired = new List<string>();
-        foreach (var rawIng in ingredientsToDeduct)
+        foreach (var parsed in ingredientsToDeduct)
         {
-            if (string.IsNullOrWhiteSpace(rawIng)) continue;
-
-            var parsed = IngredientDeductionHelper.Parse(rawIng);
             var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, fridgeProducts, []);
 
             if (!isCovered)
             {
-                var isOptional = IngredientDeductionHelper.IsOptionalSeasoningOrSauce(parsed.CleanName);
+                var isOptional = IngredientDeductionHelper.IsOptionalSeasoningOrSauce(parsed);
                 if (!isOptional || !req.IgnoreOptionalMissing)
                 {
                     missingRequired.Add(missingQty.HasValue ? $"{missingQty.Value}{unit} {parsed.CleanName}" : parsed.CleanName);
@@ -243,7 +263,7 @@ public class ProductsService : IProductsService
             }
         }
 
-        if (missingRequired.Count > 0 && !req.IgnoreOptionalMissing && req.Ingredients is { Count: > 0 })
+        if (missingRequired.Count > 0 && !req.IgnoreOptionalMissing && (req.StructuredIngredients is { Count: > 0 } || req.Ingredients is { Count: > 0 }))
         {
             // If strictly required ingredients are missing
             var missingList = string.Join(", ", missingRequired);
@@ -258,11 +278,8 @@ public class ProductsService : IProductsService
         var deductions = new List<DeductedIngredientSummary>();
 
         // Deduct matching ingredients from fridge inventory
-        foreach (var rawIng in ingredientsToDeduct)
+        foreach (var parsed in ingredientsToDeduct)
         {
-            if (string.IsNullOrWhiteSpace(rawIng)) continue;
-
-            var parsed = IngredientDeductionHelper.Parse(rawIng);
             var matching = fridgeProducts.FirstOrDefault(p => IngredientDeductionHelper.IsNameMatch(p.Name, parsed.CleanName));
             if (matching is null) continue;
 
@@ -292,7 +309,7 @@ public class ProductsService : IProductsService
             }
 
             deductions.Add(new DeductedIngredientSummary(
-                rawIng,
+                parsed.RawText,
                 matching.Name,
                 deductAmount,
                 matching.Unit,
@@ -318,10 +335,7 @@ public class ProductsService : IProductsService
 
             if (cal == 0 && prot == 0 && fat == 0 && carbs == 0 && ingredientsToDeduct.Count > 0)
             {
-                var parsedIngs = ingredientsToDeduct
-                    .Select(i => IngredientDeductionHelper.Parse(i))
-                    .ToList();
-                var calculated = NutritionCalculator.CalculateNutrition(parsedIngs, req.Portions);
+                var calculated = NutritionCalculator.CalculateNutrition(ingredientsToDeduct, req.Portions);
                 cal = calculated.Calories;
                 prot = calculated.Protein;
                 fat = calculated.Fat;

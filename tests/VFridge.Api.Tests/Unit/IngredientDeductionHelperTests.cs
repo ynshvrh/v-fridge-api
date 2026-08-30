@@ -38,16 +38,52 @@ public class IngredientDeductionHelperTests
     }
 
     [Theory]
+    // Valid matches
     [InlineData("Морква", "моркви", true)]
     [InlineData("Яйця", "яйце", true)]
     [InlineData("Куряче філе", "курка", true)]
     [InlineData("Молоко 2.5%", "молоко", true)]
     [InlineData("Картопля молода", "картоплі", true)]
+    [InlineData("Помідори чері", "томати", true)]
+    [InlineData("Вершкове масло", "масло вершкове", true)]
+    // Critical FALSE POSITIVES that must NOT match!
+    [InlineData("Сир", "Сироп", false)]
+    [InlineData("Кленовий сироп", "Сир твердий", false)]
+    [InlineData("Морква", "Морозиво", false)]
+    [InlineData("Перець", "Персик", false)]
+    [InlineData("Борошно", "Борщ", false)]
+    [InlineData("Горіхи", "Горох", false)]
+    [InlineData("Макарони", "Мак", false)]
+    [InlineData("Малина", "Масло", false)]
     [InlineData("Шоколад", "риба", false)]
-    public void IsNameMatch_MatchesUkrainianStemsAndContainment(string source, string target, bool expected)
+    public void IsNameMatch_StrictlyMatchesLegitimateProducts_AndPreventsFalsePositives(string source, string target, bool expected)
     {
         var result = IngredientDeductionHelper.IsNameMatch(source, target);
         result.Should().Be(expected);
+    }
+
+    [Fact]
+    public void IsOptionalSeasoningOrSauce_DifferentiatesMinorSpicesFromBulkIngredients()
+    {
+        // 1. Minor spices -> Optional
+        var salt = IngredientDeductionHelper.Parse("дрібка солі");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(salt).Should().BeTrue();
+
+        var blackPepper = IngredientDeductionHelper.Parse("0.5 ч.л. чорного перцю");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(blackPepper).Should().BeTrue();
+
+        var oilSpoon = IngredientDeductionHelper.Parse("1 ст.л. олії");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(oilSpoon).Should().BeTrue();
+
+        // 2. Bulk ingredients -> NOT optional
+        var bulkButter = IngredientDeductionHelper.Parse("200г вершкового масла");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(bulkButter).Should().BeFalse();
+
+        var bulkSugar = IngredientDeductionHelper.Parse("150г цукру");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(bulkSugar).Should().BeFalse();
+
+        var meat = IngredientDeductionHelper.Parse("500г курячого філе");
+        IngredientDeductionHelper.IsOptionalSeasoningOrSauce(meat).Should().BeFalse();
     }
 
     [Fact]

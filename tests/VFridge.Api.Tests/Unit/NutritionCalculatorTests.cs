@@ -13,6 +13,7 @@ public class NutritionCalculatorTests
     [InlineData("рис", 130)]
     [InlineData("молоко", 60)]
     [InlineData("морква", 41)]
+    [InlineData("персик", 39)]
     public void FindNutrition_FindsFoodInDatabase(string food, double expectedCalories)
     {
         var info = NutritionCalculator.FindNutrition(food);
@@ -21,14 +22,19 @@ public class NutritionCalculatorTests
     }
 
     [Fact]
+    public void FindNutrition_DoesNotMatchSubstrings_LikeSyrupToCheese()
+    {
+        var syrup = NutritionCalculator.FindNutrition("Кленовий сироп");
+        // Maple syrup must NOT match Cheese (which is 350 kcal)
+        if (syrup != null)
+        {
+            syrup.Calories.Should().NotBe(350);
+        }
+    }
+
+    [Fact]
     public void CalculateNutrition_CalculatesMacrosAccuratelyForDish()
     {
-        // Dish for 2 portions:
-        // 300g chicken breast (3 * 165 = 495 kcal, 93g P, 10.8g F, 0g C)
-        // 200g rice (2 * 130 = 260 kcal, 5.4g P, 0.6g F, 56g C)
-        // 100g carrot (1 * 41 = 41 kcal, 0.9g P, 0.2g F, 9.6g C)
-        // Total = 796 kcal, 99.3g P, 11.6g F, 65.6g C
-        // Per portion (2 portions) = ~398 kcal, ~49.7g P, ~5.8g F, ~32.8g C
         var ingredients = new[]
         {
             new ParsedIngredient("300г куряче філе", "Куряче філе", 300, "г"),

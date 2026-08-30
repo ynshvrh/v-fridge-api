@@ -33,6 +33,96 @@ public static class IngredientDeductionHelper
         @"^\s*(дрібка|щепотка|pinch)\s+(.+)$",
         RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
+    // Common Ukrainian inflection suffixes to strip when finding stem (minimum stem length: 4 chars)
+    private static readonly string[] InflectionSuffixes = [
+        "ами", "ями", "ного", "ному", "них", "ній", "ної", "ним", "ний",
+        "ний", "ній", "ная", "ное", "ної", "них", "ним", "ною",
+        "ою", "ею", "єю", "ом", "ем", "єм", "ів", "ей",
+        "на", "не", "ні", "та", "те", "ті",
+        "а", "я", "и", "і", "у", "ю", "е", "є", "о"
+    ];
+
+    // Canonical culinary synonym dictionary (maps variations to a canonical root)
+    private static readonly Dictionary<string, string> CanonicalAliases = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["курка"] = "CANONICAL_CHICKEN",
+        ["куряче"] = "CANONICAL_CHICKEN",
+        ["куряча"] = "CANONICAL_CHICKEN",
+        ["курячий"] = "CANONICAL_CHICKEN",
+        ["курятина"] = "CANONICAL_CHICKEN",
+        ["курча"] = "CANONICAL_CHICKEN",
+        ["chicken"] = "CANONICAL_CHICKEN",
+
+        ["яйце"] = "CANONICAL_EGG",
+        ["яйця"] = "CANONICAL_EGG",
+        ["яєць"] = "CANONICAL_EGG",
+        ["яйцем"] = "CANONICAL_EGG",
+        ["яйцями"] = "CANONICAL_EGG",
+        ["egg"] = "CANONICAL_EGG",
+        ["eggs"] = "CANONICAL_EGG",
+
+        ["помідор"] = "CANONICAL_TOMATO",
+        ["помідори"] = "CANONICAL_TOMATO",
+        ["помідорів"] = "CANONICAL_TOMATO",
+        ["томат"] = "CANONICAL_TOMATO",
+        ["томати"] = "CANONICAL_TOMATO",
+        ["томатів"] = "CANONICAL_TOMATO",
+        ["tomato"] = "CANONICAL_TOMATO",
+        ["tomatoes"] = "CANONICAL_TOMATO",
+
+        ["творог"] = "CANONICAL_COTTAGE_CHEESE",
+        ["сир кисломолочний"] = "CANONICAL_COTTAGE_CHEESE",
+        ["домашній сир"] = "CANONICAL_COTTAGE_CHEESE",
+        ["cottage cheese"] = "CANONICAL_COTTAGE_CHEESE",
+
+        ["масло вершкове"] = "CANONICAL_BUTTER",
+        ["вершкове масло"] = "CANONICAL_BUTTER",
+        ["масло"] = "CANONICAL_BUTTER",
+        ["масла"] = "CANONICAL_BUTTER",
+        ["маслом"] = "CANONICAL_BUTTER",
+        ["butter"] = "CANONICAL_BUTTER",
+
+        ["олія соняшникова"] = "CANONICAL_OIL",
+        ["соняшникова олія"] = "CANONICAL_OIL",
+        ["оливкова олія"] = "CANONICAL_OIL",
+        ["олія"] = "CANONICAL_OIL",
+        ["олії"] = "CANONICAL_OIL",
+        ["олією"] = "CANONICAL_OIL",
+        ["oil"] = "CANONICAL_OIL",
+
+        ["паста"] = "CANONICAL_PASTA",
+        ["макарони"] = "CANONICAL_PASTA",
+        ["спагеті"] = "CANONICAL_PASTA",
+        ["pasta"] = "CANONICAL_PASTA",
+        ["spaghetti"] = "CANONICAL_PASTA",
+
+        ["сіль"] = "CANONICAL_SALT",
+        ["солі"] = "CANONICAL_SALT",
+        ["соль"] = "CANONICAL_SALT",
+        ["сіллю"] = "CANONICAL_SALT",
+        ["salt"] = "CANONICAL_SALT",
+
+        ["перець"] = "CANONICAL_PEPPER",
+        ["перцю"] = "CANONICAL_PEPPER",
+        ["перцем"] = "CANONICAL_PEPPER",
+        ["pepper"] = "CANONICAL_PEPPER",
+
+        ["часник"] = "CANONICAL_GARLIC",
+        ["часнику"] = "CANONICAL_GARLIC",
+        ["часником"] = "CANONICAL_GARLIC",
+        ["garlic"] = "CANONICAL_GARLIC",
+
+        ["цибуля"] = "CANONICAL_ONION",
+        ["цибулі"] = "CANONICAL_ONION",
+        ["цибулею"] = "CANONICAL_ONION",
+        ["onion"] = "CANONICAL_ONION",
+
+        ["цукор"] = "CANONICAL_SUGAR",
+        ["цукру"] = "CANONICAL_SUGAR",
+        ["цукром"] = "CANONICAL_SUGAR",
+        ["sugar"] = "CANONICAL_SUGAR"
+    };
+
     public static ParsedIngredient Parse(string rawName, string? rawQuantity = null, string? rawUnit = null)
     {
         var trimmedName = rawName.Trim();
@@ -101,7 +191,6 @@ public static class IngredientDeductionHelper
                             }
                             else if (!string.IsNullOrWhiteSpace(potUnit) && !IsLikelyUnit(potUnit))
                             {
-                                // E.g. "1 морква" where "морква" was caught in group 2
                                 cleanName = potUnit;
                                 unit ??= "pcs";
                             }
@@ -128,7 +217,7 @@ public static class IngredientDeductionHelper
             or "зубчик" or "зубчики" or "дрібка" or "щепотка";
     }
 
-    private static string CleanNoise(string name)
+    public static string CleanNoise(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return string.Empty;
 
@@ -152,9 +241,77 @@ public static class IngredientDeductionHelper
         return n.Trim('-', '–', '—', ':', ',', '.');
     }
 
-    /// <summary>
-    /// Computes the missing quantity of an ingredient after deducting what is already in the fridge and shopping list.
-    /// </summary>
+    public static string StripEnding(string word)
+    {
+        if (string.IsNullOrWhiteSpace(word)) return string.Empty;
+        var w = word.Trim().ToLowerInvariant();
+
+        foreach (var suffix in InflectionSuffixes)
+        {
+            if (w.EndsWith(suffix) && (w.Length - suffix.Length) >= 4)
+            {
+                return w[..^suffix.Length];
+            }
+        }
+        return w;
+    }
+
+    public static bool IsNameMatch(string sourceName, string targetName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceName) || string.IsNullOrWhiteSpace(targetName))
+            return false;
+
+        var src = sourceName.Trim().ToLowerInvariant();
+        var tgt = targetName.Trim().ToLowerInvariant();
+
+        if (src == tgt) return true;
+
+        // 1. Check Canonical Aliases (e.g. "куряче філе" vs "курка", "томати" vs "помідори")
+        if (CanonicalAliases.TryGetValue(src, out var srcCanon) &&
+            CanonicalAliases.TryGetValue(tgt, out var tgtCanon) &&
+            srcCanon == tgtCanon)
+        {
+            return true;
+        }
+
+        // 2. Tokenize with word boundaries
+        var srcWords = src.Split([' ', ',', '.', '-', '(', ')', '%', '"', '\''], StringSplitOptions.RemoveEmptyEntries);
+        var tgtWords = tgt.Split([' ', ',', '.', '-', '(', ')', '%', '"', '\''], StringSplitOptions.RemoveEmptyEntries);
+
+        // Check if any source word canonical matches target word canonical
+        foreach (var sw in srcWords)
+        {
+            if (CanonicalAliases.TryGetValue(sw, out var swCanon))
+            {
+                foreach (var tw in tgtWords)
+                {
+                    if (CanonicalAliases.TryGetValue(tw, out var twCanon) && swCanon == twCanon)
+                        return true;
+                }
+            }
+        }
+
+        // 3. Exact word match in multi-word phrase
+        foreach (var sw in srcWords)
+        {
+            foreach (var tw in tgtWords)
+            {
+                if (sw == tw) return true;
+
+                // 4. Safe Stem Matching (stems MUST be >= 4 characters)
+                var stemS = StripEnding(sw);
+                var stemT = StripEnding(tw);
+
+                if (stemS.Length >= 4 && stemT.Length >= 4 && stemS == stemT)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static (bool IsCovered, decimal? MissingQuantity, string? Unit) CalculateMissing(
         ParsedIngredient ingredient,
         IReadOnlyList<Product> fridgeProducts,
@@ -226,38 +383,6 @@ public static class IngredientDeductionHelper
         return (false, null, ingredient.Unit);
     }
 
-    public static bool IsNameMatch(string sourceName, string targetName)
-    {
-        if (string.IsNullOrWhiteSpace(sourceName) || string.IsNullOrWhiteSpace(targetName))
-            return false;
-
-        var src = sourceName.Trim().ToLowerInvariant();
-        var tgt = targetName.Trim().ToLowerInvariant();
-
-        if (src == tgt) return true;
-        if (src.Contains(tgt) || tgt.Contains(src)) return true;
-
-        // Match by Ukrainian word stem (min 3 chars)
-        var srcWords = src.Split([' ', ',', '.', '-', '(', ')'], StringSplitOptions.RemoveEmptyEntries);
-        var tgtWords = tgt.Split([' ', ',', '.', '-', '(', ')'], StringSplitOptions.RemoveEmptyEntries);
-
-        foreach (var sw in srcWords)
-        {
-            if (sw.Length < 3) continue;
-            var stemS = sw.Length >= 3 ? sw[..3] : sw;
-
-            foreach (var tw in tgtWords)
-            {
-                if (tw.Length < 3) continue;
-                var stemT = tw.Length >= 3 ? tw[..3] : tw;
-
-                if (stemS == stemT) return true;
-            }
-        }
-
-        return false;
-    }
-
     public static string NormalizeUnit(string? unit)
     {
         if (string.IsNullOrWhiteSpace(unit)) return string.Empty;
@@ -324,20 +449,52 @@ public static class IngredientDeductionHelper
         return (cal, prot, fat, carbs);
     }
 
-    public static bool IsOptionalSeasoningOrSauce(string name)
+    public static bool IsOptionalSeasoningOrSauce(ParsedIngredient ingredient)
     {
+        var name = ingredient.CleanName;
         if (string.IsNullOrWhiteSpace(name)) return false;
         var lower = name.Trim().ToLowerInvariant();
-        string[] optionalKeywords = [
+
+        // Minor seasonings that are almost always optional in home cooking
+        string[] minorSeasonings = [
             "сіль", "соль", "salt",
-            "перець", "перец", "pepper",
-            "олія", "масло", "oil",
-            "спеції", "специи", "spice", "spices", "seasoning",
-            "соус", "sauce", "соєвий соус", "майонез", "кетчуп",
-            "цукор", "сахар", "sugar",
-            "зелень", "петрушка", "кріп", "укроп", "parsley", "dill",
-            "лавровий лист", "лавровый лист", "bay leaf"
+            "перець", "перец", "pepper", "чорний перець",
+            "спеції", "специи", "spice", "spices", "seasoning", "приправа",
+            "лавровий лист", "лавровый лист", "bay leaf", "паприка", "куркума", "орегано", "базилік",
+            "зелень", "петрушка", "кріп", "укроп", "parsley", "dill"
         ];
-        return optionalKeywords.Any(k => lower.Contains(k));
+
+        if (minorSeasonings.Any(s => IsNameMatch(s, lower)))
+        {
+            return true;
+        }
+
+        // Conditional seasonings (only optional if small quantities or pinch/spoon)
+        string[] conditionalSeasonings = [
+            "олія", "oil", "соняшникова олія", "оливкова олія",
+            "масло", "butter", "вершкове масло",
+            "соус", "sauce", "соєвий соус", "майонез", "кетчуп", "гірчиця",
+            "цукор", "sugar", "мед", "часник", "garlic"
+        ];
+
+        if (conditionalSeasonings.Any(s => IsNameMatch(s, lower)))
+        {
+            var unitNorm = NormalizeUnit(ingredient.Unit);
+            if (unitNorm is "дрібка" or "ч.л." or "зубчик" or "ст.л.")
+                return true;
+
+            if (ingredient.Quantity is { } qty && qty > 0)
+            {
+                if (unitNorm is "g" or "г" or "ml" or "мл" && qty <= 30)
+                    return true;
+                if (unitNorm is "pcs" or "шт" && qty <= 1)
+                    return true;
+                return false;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 }
