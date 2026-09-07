@@ -179,19 +179,23 @@ public class ShoppingService : IShoppingService
             return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
 
         var quantityToAdd = item.Quantity is { } q && q > 0 ? q : 1m;
-        var unitToUse = string.IsNullOrWhiteSpace(item.Unit) ? "pcs" : item.Unit.Trim();
+        var unitToUse = string.IsNullOrWhiteSpace(item.Unit) ? UnitStandards.ToDisplayUnit(UnitStandards.Piece, "uk") : item.Unit.Trim();
 
-        var existingProduct = await _db.Products
-            .FirstOrDefaultAsync(p =>
+        var candidates = await _db.Products
+            .Where(p =>
                 p.FridgeId == resolved.Value.FridgeId &&
                 p.Name.ToLower() == item.Name.ToLower().Trim() &&
-                p.Unit.ToLower() == unitToUse.ToLower() &&
-                p.ExpiryDate == req.ExpiryDate, ct);
+                p.ExpiryDate == req.ExpiryDate)
+            .ToListAsync(ct);
+
+        var existingProduct = candidates.FirstOrDefault(p =>
+            p.Unit.Equals(unitToUse, StringComparison.OrdinalIgnoreCase) ||
+            UnitStandards.Normalize(p.Unit) == UnitStandards.Normalize(unitToUse));
 
         Product product;
         if (existingProduct is not null)
         {
-            existingProduct.Quantity += quantityToAdd;
+            existingProduct.Quantity += UnitStandards.Convert(quantityToAdd, unitToUse, existingProduct.Unit);
             product = existingProduct;
         }
         else

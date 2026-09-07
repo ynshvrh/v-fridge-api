@@ -57,18 +57,22 @@ public class ProductsService : IProductsService
         var trimmedName = req.Name.Trim();
         var trimmedUnit = req.Unit.Trim();
 
-        // Separate batch policy: only merge if Name, Unit AND ExpiryDate match exactly
-        var existingProduct = await _db.Products
-            .FirstOrDefaultAsync(p =>
+        // Separate batch policy: only merge if Name, Unit (or compatible unit) AND ExpiryDate match exactly
+        var candidates = await _db.Products
+            .Where(p =>
                 p.FridgeId == resolved.Value.FridgeId &&
                 p.Name.ToLower() == trimmedName.ToLower() &&
-                p.Unit.ToLower() == trimmedUnit.ToLower() &&
-                p.ExpiryDate == req.ExpiryDate, ct);
+                p.ExpiryDate == req.ExpiryDate)
+            .ToListAsync(ct);
+
+        var existingProduct = candidates.FirstOrDefault(p =>
+            p.Unit.Equals(trimmedUnit, StringComparison.OrdinalIgnoreCase) ||
+            UnitStandards.Normalize(p.Unit) == UnitStandards.Normalize(trimmedUnit));
 
         Product entity;
         if (existingProduct is not null)
         {
-            existingProduct.Quantity += req.Quantity;
+            existingProduct.Quantity += UnitStandards.Convert(req.Quantity, trimmedUnit, existingProduct.Unit);
             if (!string.IsNullOrWhiteSpace(req.Description))
             {
                 existingProduct.Description = req.Description.Trim();

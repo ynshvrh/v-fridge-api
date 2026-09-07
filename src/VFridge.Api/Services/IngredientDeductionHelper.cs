@@ -383,45 +383,10 @@ public static class IngredientDeductionHelper
         return (false, null, ingredient.Unit);
     }
 
-    public static string NormalizeUnit(string? unit)
-    {
-        if (string.IsNullOrWhiteSpace(unit)) return string.Empty;
-        var u = unit.Trim().ToLowerInvariant().TrimEnd('.');
-        return u switch
-        {
-            "кг" or "kg" or "кілограм" or "кілограмів" or "килограмм" or "килограм" => "kg",
-            "г" or "g" or "грам" or "грамів" or "грамм" or "гр" => "g",
-            "л" or "l" or "літр" or "літрів" or "литр" => "l",
-            "мл" or "ml" or "мілілітр" or "мілілітрів" or "миллилитр" => "ml",
-            "шт" or "pcs" or "штук" or "штуки" or "штука" or "pc" or "piece" or "pieces" => "pcs",
-            "ст.л" or "ст. л" or "ст л" or "столова ложка" or "столові ложки" or "tbsp" => "ст.л.",
-            "ч.л" or "ч. л" or "ч л" or "чайна ложка" or "чайні ложки" or "tsp" => "ч.л.",
-            "дрібка" or "щепотка" or "pinch" => "дрібка",
-            "зубчик" or "зубчики" or "зубчиків" or "clove" or "cloves" => "зубчик",
-            _ => u
-        };
-    }
+    public static string NormalizeUnit(string? unit) => UnitStandards.Normalize(unit);
 
-    public static decimal ConvertQuantity(decimal quantity, string? fromUnit, string? toUnit)
-    {
-        var fromNorm = NormalizeUnit(fromUnit);
-        var toNorm = NormalizeUnit(toUnit);
-
-        if (fromNorm == toNorm || string.IsNullOrEmpty(fromNorm) || string.IsNullOrEmpty(toNorm))
-        {
-            return quantity;
-        }
-
-        // Weight
-        if (fromNorm == "g" && toNorm == "kg") return quantity / 1000m;
-        if (fromNorm == "kg" && toNorm == "g") return quantity * 1000m;
-
-        // Volume
-        if (fromNorm == "ml" && toNorm == "l") return quantity / 1000m;
-        if (fromNorm == "l" && toNorm == "ml") return quantity * 1000m;
-
-        return quantity;
-    }
+    public static decimal ConvertQuantity(decimal quantity, string? fromUnit, string? toUnit) =>
+        UnitStandards.Convert(quantity, fromUnit, toUnit);
 
     public static (int Calories, decimal Protein, decimal Fat, decimal Carbs) ParseNutrition(string? text)
     {
@@ -480,14 +445,14 @@ public static class IngredientDeductionHelper
         if (conditionalSeasonings.Any(s => IsNameMatch(s, lower)))
         {
             var unitNorm = NormalizeUnit(ingredient.Unit);
-            if (unitNorm is "дрібка" or "ч.л." or "зубчик" or "ст.л.")
+            if (unitNorm is UnitStandards.Pinch or UnitStandards.Teaspoon or UnitStandards.Clove or UnitStandards.Tablespoon or "дрібка" or "ч.л." or "зубчик" or "ст.л." or "tbsp" or "tsp")
                 return true;
 
             if (ingredient.Quantity is { } qty && qty > 0)
             {
-                if (unitNorm is "g" or "г" or "ml" or "мл" && qty <= 30)
+                if ((unitNorm is UnitStandards.Gram or UnitStandards.Milliliter or "g" or "г" or "ml" or "мл") && qty <= 30)
                     return true;
-                if (unitNorm is "pcs" or "шт" && qty <= 1)
+                if ((unitNorm is UnitStandards.Piece or "pcs" or "шт") && qty <= 1)
                     return true;
                 return false;
             }
