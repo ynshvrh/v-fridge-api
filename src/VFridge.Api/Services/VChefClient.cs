@@ -6,6 +6,7 @@ namespace VFridge.Api.Services;
 public interface IVChefClient
 {
     Task<VChefRecipeResponse?> GenerateRecipeAsync(VChefGenerateRecipeRequest request, CancellationToken ct = default);
+    Task<VChefChatResponse?> ChatAsync(VChefChatRequest request, CancellationToken ct = default);
     Task PingHealthAsync(CancellationToken ct = default);
 }
 
@@ -32,6 +33,27 @@ public sealed class VChefClient(HttpClient http, ILogger<VChefClient> logger) : 
         }
     }
 
+    public async Task<VChefChatResponse?> ChatAsync(VChefChatRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await http.PostAsJsonAsync("/api/v1/chat", request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errContent = await response.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("V-Chef microservice returned status {Status}: {Error}", response.StatusCode, errContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<VChefChatResponse>(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to communicate with V-Chef microservice at {BaseAddress} during chat", http.BaseAddress);
+            return null;
+        }
+    }
+
     public async Task PingHealthAsync(CancellationToken ct = default)
     {
         try
@@ -45,3 +67,4 @@ public sealed class VChefClient(HttpClient http, ILogger<VChefClient> logger) : 
         }
     }
 }
+

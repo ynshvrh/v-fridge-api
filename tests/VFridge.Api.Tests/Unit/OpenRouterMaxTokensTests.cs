@@ -82,13 +82,42 @@ public class OpenRouterMaxTokensTests
         reply.Should().BeNull();
     }
 
-    private sealed class FakeVChefClient(Contracts.VChefRecipeResponse? response) : IVChefClient
+    [Fact]
+    public async Task VChefChat_GeneratesStructuredJsonResponse_ForConversationalReplyWithoutRecipe()
+    {
+        var mockVChef = new FakeVChefClient(null, new Contracts.VChefChatResponse(
+            Reply: "You can use applesauce or mashed banana instead of eggs in baking.",
+            Recipe: null,
+            ShoppingSuggestions: null));
+
+        var service = new VChefAiChatService(mockVChef, NullLogger<VChefAiChatService>.Instance);
+
+        var reply = await service.GenerateReplyAsync(
+            Array.Empty<(string Role, string Content)>(),
+            "empty fridge",
+            "what can replace eggs?",
+            "any",
+            "en",
+            null,
+            CancellationToken.None);
+
+        reply.Should().NotBeNull();
+        using var doc = JsonDocument.Parse(reply!);
+        doc.RootElement.GetProperty("message").GetString().Should().Contain("applesauce");
+        doc.RootElement.GetProperty("recipe").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    private sealed class FakeVChefClient(Contracts.VChefRecipeResponse? response, Contracts.VChefChatResponse? chatResponse = null) : IVChefClient
     {
         public Task<Contracts.VChefRecipeResponse?> GenerateRecipeAsync(Contracts.VChefGenerateRecipeRequest request, CancellationToken ct = default)
             => Task.FromResult(response);
 
+        public Task<Contracts.VChefChatResponse?> ChatAsync(Contracts.VChefChatRequest request, CancellationToken ct = default)
+            => Task.FromResult(chatResponse ?? (response != null ? new Contracts.VChefChatResponse("Ось чудовий рецепт", response, null) : null));
+
         public Task PingHealthAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
+
 
     [Fact]
     public async Task MealPlanner_FailsOverToNextModel_WhenFirstReturnsInvalidJson()

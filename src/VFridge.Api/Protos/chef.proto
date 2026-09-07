@@ -2,10 +2,12 @@ syntax = "proto3";
 
 package vchef.v1;
 
+option go_package = "github.com/ynshvrh/V-Chef/proto/v1;vchefv1";
 option csharp_namespace = "VFridge.Api.Protos.V1";
 
 service ChefService {
   rpc GenerateRecipe (GenerateRecipeRequest) returns (GenerateRecipeResponse);
+  rpc Chat (ChatRequest) returns (ChatResponse);
   rpc HealthCheck (HealthCheckRequest) returns (HealthCheckResponse);
 }
 
@@ -37,6 +39,26 @@ message GenerateRecipeResponse {
   repeated RecipeIngredient ingredients = 10;
   repeated string steps = 11;
   string generated_at = 12;
+}
+
+message ChatHistoryItem {
+  string role = 1;
+  string content = 2;
+}
+
+message ChatRequest {
+  repeated ChatHistoryItem history = 1;
+  string message = 2;
+  repeated string inventory = 3;
+  string language = 4;
+  string cuisine_preference = 5;
+  string dietary_profile = 6;
+}
+
+message ChatResponse {
+  string reply = 1;
+  GenerateRecipeResponse recipe = 2;
+  repeated RecipeIngredient shopping_suggestions = 3;
 }
 
 message HealthCheckRequest {}
