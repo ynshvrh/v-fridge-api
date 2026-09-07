@@ -32,13 +32,15 @@ public class FridgeTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task Signup_DoesNotAutoCreatePersonalFridge()
+    public async Task Signup_AutoCreatesPersonalFridge()
     {
-        var token = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123", createFridge: false);
+        var token = await BootstrapVerifiedUserAsync("alice", "alice@example.com", "secret123");
         _client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
         var list = await _client.GetFromJsonAsync<JsonElement>("/fridges");
-        list.GetArrayLength().Should().Be(0);
+        list.GetArrayLength().Should().Be(1);
+        list[0].GetProperty("name").GetString().Should().Be("My Fridge");
+        list[0].GetProperty("role").GetString().Should().Be("owner");
     }
 
     [Fact]
@@ -219,7 +221,7 @@ public class FridgeTests : IAsyncLifetime
         body.GetProperty("code").GetString().Should().Be("INVITE_ALREADY_PENDING");
     }
 
-    private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password, bool createFridge = true)
+    private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password, bool createExtraFridge = false)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });
         using (var scope = _factory.CreateScope())
@@ -233,11 +235,11 @@ public class FridgeTests : IAsyncLifetime
         login.EnsureSuccessStatusCode();
         var token = (await login.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("accessToken").GetString()!;
 
-        if (createFridge)
+        if (createExtraFridge)
         {
             using var tempClient = _factory.CreateClient();
             tempClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            var fr = await tempClient.PostAsJsonAsync("/fridges", new { name = $"{username}'s fridge" });
+            var fr = await tempClient.PostAsJsonAsync("/fridges", new { name = $"{username}'s extra fridge" });
             fr.EnsureSuccessStatusCode();
         }
 

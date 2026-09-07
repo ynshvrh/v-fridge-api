@@ -57,6 +57,24 @@ public sealed class AuthService(
         db.Users.Add(user);
         await db.SaveChangesAsync(ct);
 
+        // Auto-provision initial personal fridge upon registration
+        var defaultFridgeName = user.PreferredLanguage == "en" ? "My Fridge" : "Мій холодильник";
+        var fridge = new Fridge
+        {
+            Name = defaultFridgeName,
+            OwnerId = user.Id
+        };
+        db.Fridges.Add(fridge);
+        await db.SaveChangesAsync(ct);
+
+        db.FridgeMembers.Add(new FridgeMember
+        {
+            FridgeId = fridge.Id,
+            UserId = user.Id,
+            Role = FridgeRoles.Owner
+        });
+        await db.SaveChangesAsync(ct);
+
         var summary = new UserSummary(
             user.Id,
             user.Username,
@@ -194,7 +212,29 @@ public sealed class AuthService(
                        Password = hasher.Hash(Guid.NewGuid().ToString("N"))
                    };
 
-            if (user.Id == 0) { db.Users.Add(user); await db.SaveChangesAsync(ct); }
+            var isNewUser = user.Id == 0;
+            if (isNewUser)
+            {
+                db.Users.Add(user);
+                await db.SaveChangesAsync(ct);
+
+                var defaultFridgeName = user.PreferredLanguage == "en" ? "My Fridge" : "Мій холодильник";
+                var fridge = new Fridge
+                {
+                    Name = defaultFridgeName,
+                    OwnerId = user.Id
+                };
+                db.Fridges.Add(fridge);
+                await db.SaveChangesAsync(ct);
+
+                db.FridgeMembers.Add(new FridgeMember
+                {
+                    FridgeId = fridge.Id,
+                    UserId = user.Id,
+                    Role = FridgeRoles.Owner
+                });
+                await db.SaveChangesAsync(ct);
+            }
 
             db.OAuthLogins.Add(new OAuthLogin
             {
