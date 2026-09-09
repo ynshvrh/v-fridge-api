@@ -179,7 +179,9 @@ public class ShoppingService : IShoppingService
             return Results.NotFound(new { code = "SHOPPING_ITEM_NOT_FOUND", error = "Shopping item not found" });
 
         var quantityToAdd = item.Quantity is { } q && q > 0 ? q : 1m;
-        var unitToUse = string.IsNullOrWhiteSpace(item.Unit) ? UnitStandards.ToDisplayUnit(UnitStandards.Piece, "uk") : item.Unit.Trim();
+        var unitToUse = string.IsNullOrWhiteSpace(item.Unit)
+            ? UnitStandards.ToDisplayUnit(UnitStandards.Piece, "uk")
+            : item.Unit.Trim();
 
         var candidates = await _db.Products
             .Where(p =>
@@ -225,7 +227,11 @@ public class ShoppingService : IShoppingService
             product.ExpiryDate,
             product.Category,
             product.OwnerId,
-            product.CreatedAt);
+            product.CreatedAt,
+            product.Calories,
+            product.Protein,
+            product.Fat,
+            product.Carbs);
 
         return Results.Created($"/products/{product.Id}", resp);
     }

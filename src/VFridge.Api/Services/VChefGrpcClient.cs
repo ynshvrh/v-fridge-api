@@ -48,7 +48,8 @@ public sealed class VChefGrpcClient(
                 i.Name,
                 (decimal)i.Quantity,
                 i.Unit,
-                i.InFridge
+                i.InFridge,
+                i.Category
             )).ToList();
 
             var steps = response.Steps.ToList();
@@ -118,7 +119,8 @@ public sealed class VChefGrpcClient(
                     i.Name,
                     (decimal)i.Quantity,
                     i.Unit,
-                    i.InFridge
+                    i.InFridge,
+                    i.Category
                 )).ToList();
 
                 var steps = r.Steps.ToList();
@@ -147,7 +149,8 @@ public sealed class VChefGrpcClient(
                     i.Name,
                     (decimal)i.Quantity,
                     i.Unit,
-                    i.InFridge
+                    i.InFridge,
+                    i.Category
                 )).ToList();
             }
 

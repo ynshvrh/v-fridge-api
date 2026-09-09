@@ -40,7 +40,11 @@ public class ProductsService : IProductsService
                 p.ExpiryDate,
                 p.Category,
                 p.OwnerId,
-                p.CreatedAt))
+                p.CreatedAt,
+                p.Calories,
+                p.Protein,
+                p.Fat,
+                p.Carbs))
             .ToListAsync(ct);
 
         return Results.Ok(items);
@@ -77,6 +81,10 @@ public class ProductsService : IProductsService
             {
                 existingProduct.Description = req.Description.Trim();
             }
+            if (req.Calories.HasValue) existingProduct.Calories = req.Calories;
+            if (req.Protein.HasValue) existingProduct.Protein = req.Protein;
+            if (req.Fat.HasValue) existingProduct.Fat = req.Fat;
+            if (req.Carbs.HasValue) existingProduct.Carbs = req.Carbs;
             entity = existingProduct;
         }
         else
@@ -90,7 +98,11 @@ public class ProductsService : IProductsService
                 ExpiryDate = req.ExpiryDate,
                 Category = category,
                 OwnerId = uid,
-                FridgeId = resolved.Value.FridgeId
+                FridgeId = resolved.Value.FridgeId,
+                Calories = req.Calories,
+                Protein = req.Protein,
+                Fat = req.Fat,
+                Carbs = req.Carbs
             };
             _db.Products.Add(entity);
         }
@@ -119,7 +131,11 @@ public class ProductsService : IProductsService
             entity.ExpiryDate,
             entity.Category,
             entity.OwnerId,
-            entity.CreatedAt);
+            entity.CreatedAt,
+            entity.Calories,
+            entity.Protein,
+            entity.Fat,
+            entity.Carbs);
 
         return Results.Created($"/products/{entity.Id}", resp);
     }
@@ -172,7 +188,7 @@ public class ProductsService : IProductsService
             entity.Quantity = q;
         }
 
-        if (req.Unit is { } u) entity.Unit = u;
+        if (req.Unit is { } u) entity.Unit = u.Trim();
         if (req.ExpiryDate is { } d) entity.ExpiryDate = d;
         if (req.Category is { } cat)
         {
@@ -186,6 +202,11 @@ public class ProductsService : IProductsService
             entity.Category = cat;
         }
 
+        if (req.Calories.HasValue) entity.Calories = req.Calories;
+        if (req.Protein.HasValue) entity.Protein = req.Protein;
+        if (req.Fat.HasValue) entity.Fat = req.Fat;
+        if (req.Carbs.HasValue) entity.Carbs = req.Carbs;
+
         await _db.SaveChangesAsync(ct);
 
         var resp = new ProductResponse(
@@ -197,7 +218,11 @@ public class ProductsService : IProductsService
             entity.ExpiryDate,
             entity.Category,
             entity.OwnerId,
-            entity.CreatedAt);
+            entity.CreatedAt,
+            entity.Calories,
+            entity.Protein,
+            entity.Fat,
+            entity.Carbs);
 
         return Results.Ok(resp);
     }
@@ -373,6 +398,10 @@ public class ProductsService : IProductsService
             existingPrepared.ExpiryDate = expDate;
             if (!string.IsNullOrWhiteSpace(descText))
                 existingPrepared.Description = descText;
+            existingPrepared.Calories = cal;
+            existingPrepared.Protein = prot;
+            existingPrepared.Fat = fat;
+            existingPrepared.Carbs = carbs;
             entity = existingPrepared;
         }
         else
@@ -386,7 +415,11 @@ public class ProductsService : IProductsService
                 ExpiryDate = expDate,
                 Category = ProductCategories.PreparedMeals,
                 OwnerId = uid,
-                FridgeId = fridgeId
+                FridgeId = fridgeId,
+                Calories = cal,
+                Protein = prot,
+                Fat = fat,
+                Carbs = carbs
             };
             _db.Products.Add(entity);
         }
@@ -395,7 +428,8 @@ public class ProductsService : IProductsService
 
         var productResp = new ProductResponse(
             entity.Id, entity.Name, entity.Description, entity.Quantity, entity.Unit,
-            entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt);
+            entity.ExpiryDate, entity.Category, entity.OwnerId, entity.CreatedAt,
+            entity.Calories, entity.Protein, entity.Fat, entity.Carbs);
 
         var message = deductions.Count > 0
             ? $"Приготовано {req.Portions} порц. «{entity.Name}». Списано {deductions.Count} інгредієнтів з холодильника."
@@ -453,10 +487,10 @@ public class ProductsService : IProductsService
         }
 
         // Determine KBJU per portion
-        int calPerPortion = req.Calories ?? 0;
-        decimal protPerPortion = req.Protein ?? 0;
-        decimal fatPerPortion = req.Fat ?? 0;
-        decimal carbsPerPortion = req.Carbs ?? 0;
+        int calPerPortion = req.Calories ?? entity.Calories ?? 0;
+        decimal protPerPortion = req.Protein ?? entity.Protein ?? 0;
+        decimal fatPerPortion = req.Fat ?? entity.Fat ?? 0;
+        decimal carbsPerPortion = req.Carbs ?? entity.Carbs ?? 0;
 
         if (calPerPortion == 0 && protPerPortion == 0 && fatPerPortion == 0 && carbsPerPortion == 0)
         {

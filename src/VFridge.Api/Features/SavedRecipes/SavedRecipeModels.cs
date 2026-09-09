@@ -1,3 +1,5 @@
+using VFridge.Api.Contracts;
+
 namespace VFridge.Api.Features.SavedRecipes;
 
 public sealed record SavedRecipeResponse(
@@ -10,7 +12,8 @@ public sealed record SavedRecipeResponse(
     decimal Protein,
     decimal Fat,
     decimal Carbs,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    IReadOnlyList<RecipeIngredientDto>? StructuredIngredients = null);
 
 public sealed record SaveRecipeRequest(
     string Name,
@@ -20,4 +23,5 @@ public sealed record SaveRecipeRequest(
     int Calories,
     decimal Protein,
     decimal Fat,
-    decimal Carbs);
+    decimal Carbs,
+    IReadOnlyList<RecipeIngredientDto>? StructuredIngredients = null);

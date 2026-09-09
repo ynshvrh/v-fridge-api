@@ -84,15 +84,27 @@ public sealed class VChefAiChatService(
                     carbs = (int)Math.Round(calc.Carbs);
                 }
 
+                var structuredIngredients = parsedIngredients.Zip(recipe.Ingredients, (parsed, raw) =>
+                {
+                    var cat = !string.IsNullOrWhiteSpace(raw.Category) && raw.Category != ProductCategories.Other
+                        ? raw.Category
+                        : CategoryInferrer.InferCategory(parsed.CleanName);
+                    var unit = string.IsNullOrWhiteSpace(parsed.Unit) ? UnitStandards.ToDisplayUnit("pcs", language) : parsed.Unit;
+                    return new RecipeIngredientDto(parsed.CleanName, parsed.Quantity, unit, cat, raw.InFridge);
+                }).ToList();
+
+                var displayIngredients = parsedIngredients.Select(i =>
+                    i.Quantity.HasValue && !string.IsNullOrWhiteSpace(i.Unit)
+                        ? $"{i.Quantity.Value} {i.Unit} {i.CleanName}"
+                        : (i.Quantity.HasValue ? $"{i.Quantity.Value} {UnitStandards.ToDisplayUnit("pcs", language)} {i.CleanName}" : i.CleanName))
+                    .ToList();
+
                 recipeObj = new
                 {
                     name = recipe.Title,
                     description = recipe.Description,
-                    ingredients = parsedIngredients.Select(i =>
-                        i.Quantity.HasValue && !string.IsNullOrWhiteSpace(i.Unit)
-                            ? $"{i.Quantity.Value} {i.Unit} {i.CleanName}"
-                            : (i.Quantity.HasValue ? $"{i.Quantity.Value} {UnitStandards.ToDisplayUnit("pcs", language)} {i.CleanName}" : i.CleanName))
-                        .ToList(),
+                    ingredients = displayIngredients,
+                    structuredIngredients = structuredIngredients,
                     steps = recipe.Steps,
                     calories = cal,
                     protein = prot,

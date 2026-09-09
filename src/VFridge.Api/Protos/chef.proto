@@ -24,6 +24,7 @@ message RecipeIngredient {
   double quantity = 2;
   string unit = 3;
   bool in_fridge = 4;
+  string category = 5;
 }
 
 message GenerateRecipeResponse {

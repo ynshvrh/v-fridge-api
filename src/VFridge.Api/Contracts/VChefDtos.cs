@@ -13,7 +13,8 @@ public sealed record VChefIngredient(
     [property: JsonPropertyName("name")] string Name,
     [property: JsonPropertyName("quantity")] decimal? Quantity,
     [property: JsonPropertyName("unit")] string? Unit,
-    [property: JsonPropertyName("in_fridge")] bool InFridge);
+    [property: JsonPropertyName("in_fridge")] bool InFridge,
+    [property: JsonPropertyName("category")] string? Category = null);
 
 public sealed record VChefRecipeResponse(
     [property: JsonPropertyName("title")] string Title,

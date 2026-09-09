@@ -12,17 +12,25 @@ public sealed record ProductResponse(
     DateOnly? ExpiryDate,
     string Category,
     int OwnerId,
-    DateTime? CreatedAt);
+    DateTime? CreatedAt,
+    int? Calories = null,
+    decimal? Protein = null,
+    decimal? Fat = null,
+    decimal? Carbs = null);
 
 public sealed record CreateProductRequest(
     [property: Required, MinLength(2, ErrorMessage = "Name is too short")]
     string Name,
     string? Description,
-    [property: Range(0.01, 1_000_000, ErrorMessage = "Quantity must be greater than 0")]
+    [property: Range(0.001, 1_000_000, ErrorMessage = "Quantity must be greater than 0")]
     decimal Quantity,
     [property: Required] string Unit,
     DateOnly? ExpiryDate,
-    string? Category);
+    string? Category,
+    int? Calories = null,
+    decimal? Protein = null,
+    decimal? Fat = null,
+    decimal? Carbs = null);
 
 public sealed record UpdateProductRequest(
     string? Name,
@@ -30,7 +38,11 @@ public sealed record UpdateProductRequest(
     decimal? Quantity,
     string? Unit,
     DateOnly? ExpiryDate,
-    string? Category);
+    string? Category,
+    int? Calories = null,
+    decimal? Protein = null,
+    decimal? Fat = null,
+    decimal? Carbs = null);
 
 public sealed record DeductedIngredientSummary(
     string RawIngredient,
@@ -39,10 +51,18 @@ public sealed record DeductedIngredientSummary(
     string Unit,
     bool FullyConsumed);
 
+public sealed record RecipeIngredientDto(
+    string Name,
+    decimal? Quantity = null,
+    string? Unit = null,
+    string? Category = null,
+    bool InFridge = false);
+
 public sealed record CookIngredientDto(
     string Name,
     decimal? Quantity = null,
-    string? Unit = null);
+    string? Unit = null,
+    string? Category = null);
 
 public sealed record CookRecipeRequest(
     [property: Required, MinLength(2, ErrorMessage = "Recipe name is too short")]

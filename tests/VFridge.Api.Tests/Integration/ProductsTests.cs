@@ -348,6 +348,102 @@ public class ProductsTests : IAsyncLifetime
         body.GetProperty("code").GetString().Should().Be("MISSING_REQUIRED_INGREDIENTS");
     }
 
+    [Fact]
+    public async Task CreateProduct_WithNutritionAndPrecision_SavesAndReturnsAccurately()
+    {
+        var create = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Вівсянка",
+            quantity = 0.255m,
+            unit = "kg",
+            category = "pantry",
+            calories = 370,
+            protein = 12.5m,
+            fat = 6.8m,
+            carbs = 65.2m
+        });
+        create.StatusCode.Should().Be(HttpStatusCode.Created);
+        var created = await create.Content.ReadFromJsonAsync<JsonElement>();
+        created.GetProperty("calories").GetInt32().Should().Be(370);
+        created.GetProperty("protein").GetDecimal().Should().Be(12.5m);
+        created.GetProperty("fat").GetDecimal().Should().Be(6.8m);
+        created.GetProperty("carbs").GetDecimal().Should().Be(65.2m);
+        created.GetProperty("quantity").GetDecimal().Should().Be(0.255m);
+
+        var list = await _client.GetFromJsonAsync<JsonElement>("/products");
+        var item = list.EnumerateArray().First(x => x.GetProperty("name").GetString() == "Вівсянка");
+        item.GetProperty("calories").GetInt32().Should().Be(370);
+        item.GetProperty("protein").GetDecimal().Should().Be(12.5m);
+        item.GetProperty("fat").GetDecimal().Should().Be(6.8m);
+        item.GetProperty("carbs").GetDecimal().Should().Be(65.2m);
+        item.GetProperty("quantity").GetDecimal().Should().Be(0.255m);
+    }
+
+    [Fact]
+    public async Task PatchProduct_UpdatesNutritionValues()
+    {
+        var create = await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Сир кисломолочний",
+            quantity = 0.400m,
+            unit = "kg",
+            category = "dairy",
+            calories = 120,
+            protein = 18m,
+            fat = 5m,
+            carbs = 2m
+        });
+        var id = (await create.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("id").GetInt32();
+
+        var patch = await _client.PatchAsJsonAsync($"/products/{id}", new
+        {
+            calories = 150,
+            protein = 20m,
+            fat = 9m,
+            carbs = 3m
+        });
+        patch.StatusCode.Should().Be(HttpStatusCode.OK);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        patched.GetProperty("calories").GetInt32().Should().Be(150);
+        patched.GetProperty("protein").GetDecimal().Should().Be(20m);
+        patched.GetProperty("fat").GetDecimal().Should().Be(9m);
+        patched.GetProperty("carbs").GetDecimal().Should().Be(3m);
+    }
+
+    [Fact]
+    public async Task CookRecipe_WithStructuredIngredients_DeductsAndAppliesNutrition()
+    {
+        await _client.PostAsJsonAsync("/products", new
+        {
+            name = "Морква свіжа",
+            quantity = 0.500m,
+            unit = "kg",
+            category = "vegetables"
+        });
+
+        var cook = await _client.PostAsJsonAsync("/products/cook", new
+        {
+            name = "Морквяний салат",
+            portions = 2,
+            structuredIngredients = new[]
+            {
+                new { name = "Морква свіжа", quantity = 0.200m, unit = "kg", category = "vegetables" }
+            },
+            caloriesPerPortion = 95,
+            proteinPerPortion = 2.1m,
+            fatPerPortion = 0.5m,
+            carbsPerPortion = 15.0m
+        });
+        cook.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await cook.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("preparedMealProduct").GetProperty("name").GetString().Should().Be("Морквяний салат");
+        body.GetProperty("preparedMealProduct").GetProperty("calories").GetInt32().Should().Be(95);
+        body.GetProperty("preparedMealProduct").GetProperty("protein").GetDecimal().Should().Be(2.1m);
+        body.GetProperty("preparedMealProduct").GetProperty("fat").GetDecimal().Should().Be(0.5m);
+        body.GetProperty("preparedMealProduct").GetProperty("carbs").GetDecimal().Should().Be(15.0m);
+        body.GetProperty("deductions")[0].GetProperty("deductedQuantity").GetDecimal().Should().Be(0.200m);
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });

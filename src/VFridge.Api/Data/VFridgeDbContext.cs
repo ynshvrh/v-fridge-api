@@ -65,7 +65,7 @@ public partial class VFridgeDbContext : DbContext
             entity.Property(e => e.OwnerId).HasColumnName("owner_id");
             entity.Property(e => e.FridgeId).HasColumnName("fridge_id");
             entity.Property(e => e.Quantity)
-                .HasPrecision(10, 2)
+                .HasPrecision(12, 3)
                 .HasColumnName("quantity");
             entity.Property(e => e.Unit)
                 .HasMaxLength(20)
@@ -74,6 +74,16 @@ public partial class VFridgeDbContext : DbContext
                 .HasMaxLength(32)
                 .HasDefaultValue(VFridge.Api.Contracts.ProductCategories.Other)
                 .HasColumnName("category");
+            entity.Property(e => e.Calories).HasColumnName("calories");
+            entity.Property(e => e.Protein)
+                .HasPrecision(6, 2)
+                .HasColumnName("protein");
+            entity.Property(e => e.Fat)
+                .HasPrecision(6, 2)
+                .HasColumnName("fat");
+            entity.Property(e => e.Carbs)
+                .HasPrecision(6, 2)
+                .HasColumnName("carbs");
 
             entity.HasOne(d => d.Owner).WithMany(p => p.Products)
                 .HasForeignKey(d => d.OwnerId)
@@ -149,7 +159,7 @@ public partial class VFridgeDbContext : DbContext
                 .HasMaxLength(255)
                 .HasColumnName("food_name");
             entity.Property(e => e.Quantity)
-                .HasPrecision(10, 2)
+                .HasPrecision(12, 3)
                 .HasColumnName("quantity");
             entity.Property(e => e.Unit)
                 .HasMaxLength(20)

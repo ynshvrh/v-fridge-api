@@ -54,10 +54,28 @@ public class SavedRecipeService : ISavedRecipeService
         var existing = await _db.SavedRecipes
             .FirstOrDefaultAsync(r => r.UserId == uid && r.Name.ToLower() == nameTrimmed.ToLower(), ct);
 
-        var ingredientsList = req.Ingredients ?? Array.Empty<string>();
+        List<RecipeIngredientDto> structuredList;
+        if (req.StructuredIngredients is { Count: > 0 })
+        {
+            structuredList = req.StructuredIngredients.ToList();
+        }
+        else if (req.Ingredients is { Count: > 0 })
+        {
+            structuredList = req.Ingredients.Select(ing =>
+            {
+                var parsed = IngredientDeductionHelper.Parse(ing);
+                var cat = CategoryInferrer.InferCategory(parsed.CleanName);
+                return new RecipeIngredientDto(parsed.CleanName, parsed.Quantity, parsed.Unit, cat, false);
+            }).ToList();
+        }
+        else
+        {
+            structuredList = new List<RecipeIngredientDto>();
+        }
+
         var stepsList = req.Steps ?? Array.Empty<string>();
 
-        var ingredientsJson = JsonSerializer.Serialize(ingredientsList, JsonOptions);
+        var ingredientsJson = JsonSerializer.Serialize(structuredList, JsonOptions);
         var stepsJson = JsonSerializer.Serialize(stepsList, JsonOptions);
         var now = DateTime.UtcNow;
 
@@ -111,19 +129,64 @@ public class SavedRecipeService : ISavedRecipeService
 
     private static SavedRecipeResponse MapToResponse(SavedRecipeRecord r)
     {
-        var ingredients = JsonSerializer.Deserialize<List<string>>(r.IngredientsJson, JsonOptions) ?? new List<string>();
         var steps = JsonSerializer.Deserialize<List<string>>(r.StepsJson, JsonOptions) ?? new List<string>();
+
+        List<RecipeIngredientDto> structured = new();
+        List<string> displayIngredients = new();
+
+        if (!string.IsNullOrWhiteSpace(r.IngredientsJson) && r.IngredientsJson.Trim() != "[]")
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(r.IngredientsJson);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        if (el.ValueKind == JsonValueKind.Object)
+                        {
+                            var dto = JsonSerializer.Deserialize<RecipeIngredientDto>(el.GetRawText(), JsonOptions);
+                            if (dto != null)
+                            {
+                                structured.Add(dto);
+                                var unitDisplay = string.IsNullOrWhiteSpace(dto.Unit) ? "" : dto.Unit.Trim();
+                                var str = dto.Quantity.HasValue && !string.IsNullOrWhiteSpace(unitDisplay)
+                                    ? $"{dto.Quantity.Value} {unitDisplay} {dto.Name}".Trim()
+                                    : (dto.Quantity.HasValue ? $"{dto.Quantity.Value} {dto.Name}".Trim() : dto.Name);
+                                displayIngredients.Add(str);
+                            }
+                        }
+                        else if (el.ValueKind == JsonValueKind.String)
+                        {
+                            var raw = el.GetString() ?? "";
+                            if (!string.IsNullOrWhiteSpace(raw))
+                            {
+                                displayIngredients.Add(raw);
+                                var parsed = IngredientDeductionHelper.Parse(raw);
+                                var cat = CategoryInferrer.InferCategory(parsed.CleanName);
+                                structured.Add(new RecipeIngredientDto(parsed.CleanName, parsed.Quantity, parsed.Unit, cat, false));
+                            }
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // fallback if parsing as json fails
+            }
+        }
 
         return new SavedRecipeResponse(
             r.Id,
             r.Name,
             r.Description,
-            ingredients,
+            displayIngredients,
             steps,
             r.Calories,
             r.Protein,
             r.Fat,
             r.Carbs,
-            r.CreatedAt);
+            r.CreatedAt,
+            structured);
     }
 }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using VFridge.Api.Contracts;
 
@@ -25,6 +25,14 @@ public partial class Product
     public DateTime? CreatedAt { get; set; }
 
     public string Category { get; set; } = ProductCategories.Other;
+ 
+    public int? Calories { get; set; }
+ 
+    public decimal? Protein { get; set; }
+ 
+    public decimal? Fat { get; set; }
+ 
+    public decimal? Carbs { get; set; }
 
     public virtual User Owner { get; set; } = null!;
 
