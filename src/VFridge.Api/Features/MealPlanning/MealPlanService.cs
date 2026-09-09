@@ -59,6 +59,18 @@ public class MealPlanService : IMealPlanService
                     ?? new List<MealPlanMeal>();
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(row.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
+
+        string language = "uk";
+        if (_me.UserId is int uid)
+        {
+            var prefs = await _db.Users
+                .Where(u => u.Id == uid)
+                .Select(u => new { u.PreferredLanguage })
+                .FirstOrDefaultAsync(ct);
+            language = SupportedLanguages.Normalize(prefs?.PreferredLanguage);
+        }
+
+        meals = await EnrichMealsWithStructuredIngredientsAsync(resolved.Value.FridgeId, meals, language, ct);
         var filteredGaps = await FilterGapItemsAsync(resolved.Value.FridgeId, meals, gaps, ct);
         return Results.Ok(new MealPlanResponse(meals, filteredGaps, row.UpdatedAt));
     }
@@ -127,10 +139,11 @@ public class MealPlanService : IMealPlanService
                 .ToList();
         }
 
-        var filteredGaps = await FilterGapItemsAsync(fridgeId, plan.Meals, candidateGaps, ct);
+        var enrichedMeals = await EnrichMealsWithStructuredIngredientsAsync(fridgeId, plan.Meals.ToList(), language, ct);
+        var filteredGaps = await FilterGapItemsAsync(fridgeId, enrichedMeals, candidateGaps, ct);
 
         var now = DateTime.UtcNow;
-        var mealsJson = JsonSerializer.Serialize(plan.Meals, CacheJson);
+        var mealsJson = JsonSerializer.Serialize(enrichedMeals, CacheJson);
         var gapsJson = JsonSerializer.Serialize(filteredGaps, CacheJson);
 
         if (existing is null)
@@ -152,7 +165,7 @@ public class MealPlanService : IMealPlanService
         }
         await _db.SaveChangesAsync(ct);
 
-        return Results.Ok(new MealPlanResponse(plan.Meals, filteredGaps, now));
+        return Results.Ok(new MealPlanResponse(enrichedMeals, filteredGaps, now));
     }
 
     public async Task<IResult> RegenerateDayAsync(RegenerateDayRequest req, CancellationToken ct)
@@ -212,8 +225,9 @@ public class MealPlanService : IMealPlanService
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
+        var enrichedReplacements = await EnrichMealsWithStructuredIngredientsAsync(fridgeId, replacementMeals.ToList(), language, ct);
         meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase));
-        meals.AddRange(replacementMeals);
+        meals.AddRange(enrichedReplacements);
 
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(existing.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
@@ -295,9 +309,10 @@ public class MealPlanService : IMealPlanService
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
+        var enrichedList = await EnrichMealsWithStructuredIngredientsAsync(fridgeId, new List<MealPlanMeal> { replacementMeal }, language, ct);
         meals.RemoveAll(m => string.Equals(m.Day, day, StringComparison.OrdinalIgnoreCase) &&
                              string.Equals(m.MealType ?? "dinner", req.MealType, StringComparison.OrdinalIgnoreCase));
-        meals.Add(replacementMeal);
+        meals.Add(enrichedList[0]);
 
         var gaps = JsonSerializer.Deserialize<List<MealPlanGapItem>>(existing.GapItemsJson, CacheJson)
                    ?? new List<MealPlanGapItem>();
@@ -373,7 +388,7 @@ public class MealPlanService : IMealPlanService
                 statusCode: StatusCodes.Status502BadGateway);
         }
 
-        meals[mealIndex] = targetMeal with
+        var targetMealWithRecipe = targetMeal with
         {
             Description = recipe.Description,
             Steps = recipe.Steps,
@@ -382,6 +397,8 @@ public class MealPlanService : IMealPlanService
             Fat = recipe.Fat,
             Carbs = recipe.Carbs
         };
+        var enrichedRecipeMeals = await EnrichMealsWithStructuredIngredientsAsync(fridgeId, new List<MealPlanMeal> { targetMealWithRecipe }, language, ct);
+        meals[mealIndex] = enrichedRecipeMeals[0];
 
         var now = DateTime.UtcNow;
         existing.MealsJson = JsonSerializer.Serialize(meals, CacheJson);
@@ -511,5 +528,75 @@ public class MealPlanService : IMealPlanService
     {
         return System.Globalization.ISOWeek.GetWeekOfYear(date1) == System.Globalization.ISOWeek.GetWeekOfYear(date2) &&
                System.Globalization.ISOWeek.GetYear(date1) == System.Globalization.ISOWeek.GetYear(date2);
+    }
+
+    private async Task<List<MealPlanMeal>> EnrichMealsWithStructuredIngredientsAsync(
+        int fridgeId,
+        List<MealPlanMeal> meals,
+        string language,
+        CancellationToken ct)
+    {
+        var products = await _db.Products
+            .Where(p => p.FridgeId == fridgeId)
+            .ToListAsync(ct);
+
+        var enriched = new List<MealPlanMeal>(meals.Count);
+        foreach (var meal in meals)
+        {
+            var structured = new List<RecipeIngredientDto>();
+            var displayIngredients = new List<string>();
+
+            foreach (var rawIng in meal.Ingredients ?? (IReadOnlyList<string>)Array.Empty<string>())
+            {
+                if (string.IsNullOrWhiteSpace(rawIng)) continue;
+
+                var parsed = IngredientDeductionHelper.Parse(rawIng, null, null);
+                var category = CategoryInferrer.InferCategory(parsed.CleanName);
+                var isCovered = products.Any(p => IngredientDeductionHelper.IsNameMatch(p.Name, parsed.CleanName));
+
+                var unitNorm = UnitStandards.Normalize(parsed.Unit);
+                if (string.IsNullOrWhiteSpace(unitNorm))
+                {
+                    unitNorm = "pcs";
+                }
+
+                var qty = parsed.Quantity ?? 1m;
+                // If quantity is absurdly large (e.g. 1 kg nuts/salt/sugar in a single meal)
+                if (qty >= 1m && (unitNorm == "kg" || (qty >= 500m && unitNorm == "g")))
+                {
+                    if (category is ProductCategories.Snacks or ProductCategories.Pantry or ProductCategories.Sauces)
+                    {
+                        qty = 30m;
+                        unitNorm = "g";
+                    }
+                }
+
+                var displayUnit = UnitStandards.ToDisplayUnit(unitNorm, language);
+                var cleanName = parsed.CleanName;
+                if (!string.IsNullOrWhiteSpace(cleanName))
+                {
+                    cleanName = char.ToUpper(cleanName[0]) + cleanName[1..];
+                }
+
+                var displayStr = $"{qty} {displayUnit} {cleanName}";
+                displayIngredients.Add(displayStr);
+
+                structured.Add(new RecipeIngredientDto(
+                    cleanName,
+                    qty,
+                    displayUnit,
+                    category,
+                    isCovered
+                ));
+            }
+
+            enriched.Add(meal with
+            {
+                Ingredients = displayIngredients.Count > 0 ? displayIngredients : (meal.Ingredients ?? (IReadOnlyList<string>)Array.Empty<string>()),
+                StructuredIngredients = structured
+            });
+        }
+
+        return enriched;
     }
 }

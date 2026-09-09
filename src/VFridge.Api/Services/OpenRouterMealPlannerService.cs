@@ -68,7 +68,7 @@ public sealed class OpenRouterMealPlannerService(
         activePrompt =
             $"You are V-Fridge's meal planner. Given the user's current inventory, propose exactly 3 weekday " +
             $"meals (breakfast, lunch, and dinner, assigned to {currentDay}). For each meal " +
-            "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. Use " +
+            "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify a realistic single-portion cooking quantity and unit, e.g. '30g горіхи', '1 шт банан', '150g куряче філе', '2 яйця'. NEVER dump entire fridge stock or bulk package quantities like '1 кг горіхи'!). Do NOT include cooking steps or a description. Use " +
             "what is in the fridge wherever possible; only ask for extra ingredients when the meal genuinely " +
             "needs them. Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe; instead, suggest a standard meal and list the missing ingredients in 'gapItems'. " +
             $"We already have meals planned for other days: {existingMealsSummary}. Avoid repeating these dishes if possible. " +

@@ -84,7 +84,7 @@ public static class AiPrompts
     public const string RegenerateDaySystemPrompt =
         "You are V-Fridge's meal planner. Propose exactly 3 meals (breakfast, lunch, dinner) for the requested weekday based on the " +
         "user's current inventory. For each meal, " +
-        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. " +
+        "give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify a realistic single-portion cooking quantity and unit, e.g. '30g горіхи', '1 шт банан', '150g куряче філе', '2 яйця'. NEVER dump entire fridge stock or bulk package quantities like '1 кг горіхи'!). Do NOT include cooking steps or a description. " +
         "Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe. " +
         "Respond with strict JSON matching this schema, no prose: " +
         "{\"meals\":[{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?}]} " +
@@ -95,7 +95,7 @@ public static class AiPrompts
     /// </summary>
     public const string RegenerateMealSystemPrompt =
         "You are V-Fridge's meal planner. Propose exactly 1 meal for the requested weekday and meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner') based on the " +
-        "user's current inventory. Give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify the quantity and unit if known, e.g. '2 eggs' or '100g cheese'). Do NOT include cooking steps or a description. " +
+        "user's current inventory. Give its name, weekday (day), meal type (mealType: must be one of 'breakfast', 'lunch', 'dinner'), and the list of ingredients (each ingredient MUST specify a realistic single-portion cooking quantity and unit, e.g. '30g горіхи', '1 шт банан', '150g куряче філе', '2 яйця'. NEVER dump entire fridge stock or bulk package quantities like '1 кг горіхи'!). Do NOT include cooking steps or a description. " +
         "Do not combine incompatible ingredients. If an item cannot be logically used, do not force it into a recipe. " +
         "Respond with strict JSON matching this schema, no prose: " +
         "{\"name\":string,\"day\":string,\"mealType\":string,\"ingredients\":[string],\"note\":string?} " +

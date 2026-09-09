@@ -19,7 +19,8 @@ public sealed record MealPlanMeal(
     int Calories = 0,
     decimal Protein = 0,
     decimal Fat = 0,
-    decimal Carbs = 0);
+    decimal Carbs = 0,
+    IReadOnlyList<RecipeIngredientDto>? StructuredIngredients = null);
 
 public sealed record MealPlanGapItem(
     string Name,
