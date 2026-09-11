@@ -43,6 +43,12 @@ public class VChefMealPlannerServiceTests
             return Task.FromResult(ResponseToReturn);
         }
 
+        public Task<VChefNutritionEstimateResponse?> EstimateNutritionAsync(VChefNutritionEstimateRequest request, CancellationToken ct = default)
+        {
+            if (ThrowException) throw new HttpRequestException("VChef microservice is down");
+            return Task.FromResult<VChefNutritionEstimateResponse?>(null);
+        }
+
         public Task PingHealthAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 

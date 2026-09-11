@@ -9,4 +9,5 @@ public interface INutritionService
     Task<IResult> UpdateLogAsync(long id, UpdateLogRequest req, CancellationToken ct);
     Task<IResult> DeleteLogAsync(long id, CancellationToken ct);
     Task<IResult> SetTargetsAsync(SetTargetsRequest req, CancellationToken ct);
+    Task<IResult> EstimateAsync(EstimateNutritionRequest req, CancellationToken ct);
 }

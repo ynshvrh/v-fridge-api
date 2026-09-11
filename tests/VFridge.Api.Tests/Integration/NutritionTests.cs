@@ -132,6 +132,43 @@ public class NutritionTests : IAsyncLifetime
         listProducts.GetArrayLength().Should().Be(0);
     }
 
+    [Fact]
+    public async Task EstimateNutrition_WithVChef_ReturnsEstimates()
+    {
+        var resp = await _client.PostAsJsonAsync("/nutrition/estimate", new
+        {
+            dishName = "Гречана каша",
+            quantity = 200,
+            unit = "г"
+        });
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("foodName").GetString().Should().Be("Гречана каша");
+        body.GetProperty("calories").GetInt32().Should().Be(250);
+        body.GetProperty("confidence").GetString().Should().Be("ai");
+        _factory.VChef.NutritionCallCount.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task EstimateNutrition_WhenVChefFails_ReturnsLocalFallback()
+    {
+        _factory.VChef.NutritionEstimateResponse = null;
+
+        var resp = await _client.PostAsJsonAsync("/nutrition/estimate", new
+        {
+            dishName = "Вівсянка",
+            quantity = 150,
+            unit = "г"
+        });
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("foodName").GetString().Should().Be("Вівсянка");
+        body.GetProperty("calories").GetInt32().Should().BeGreaterThan(0);
+        body.GetProperty("confidence").GetString().Should().Be("local_fallback");
+    }
+
     private async Task<string> BootstrapVerifiedUserAsync(string username, string email, string password)
     {
         await _client.PostAsJsonAsync("/auth/signup", new { username, email, password });

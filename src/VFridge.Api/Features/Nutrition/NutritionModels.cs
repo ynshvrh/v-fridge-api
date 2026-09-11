@@ -107,3 +107,22 @@ public sealed class SetTargetsRequest
     [Range(0, 1000, ErrorMessage = "Carbs must be positive and less than 1000.")]
     public decimal? Carbs { get; set; }
 }
+
+public sealed record EstimateNutritionRequest(
+    [property: Required, MinLength(1, ErrorMessage = "Dish name is required")] string DishName,
+    decimal? Quantity = null,
+    string? Unit = null,
+    string? Notes = null);
+
+public sealed record EstimateNutritionResponse(
+    string FoodName,
+    decimal Quantity,
+    string Unit,
+    int Calories,
+    decimal Protein,
+    decimal Fat,
+    decimal Carbs,
+    decimal EstimatedWeightG,
+    string Confidence,
+    string? Notes = null);
+

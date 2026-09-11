@@ -80,3 +80,23 @@ public sealed record VChefMealPlanResponse(
     [property: JsonPropertyName("meals")] List<VChefMealPlanMeal> Meals,
     [property: JsonPropertyName("gap_items")] List<VChefMealPlanGapItem> GapItems);
 
+public sealed record VChefNutritionEstimateRequest(
+    [property: JsonPropertyName("dish_name")] string DishName,
+    [property: JsonPropertyName("quantity")] decimal? Quantity = null,
+    [property: JsonPropertyName("unit")] string? Unit = null,
+    [property: JsonPropertyName("notes")] string? Notes = null,
+    [property: JsonPropertyName("language")] string? Language = null);
+
+public sealed record VChefNutritionEstimateResponse(
+    [property: JsonPropertyName("food_name")] string FoodName,
+    [property: JsonPropertyName("quantity")] decimal Quantity,
+    [property: JsonPropertyName("unit")] string Unit,
+    [property: JsonPropertyName("calories")] int Calories,
+    [property: JsonPropertyName("protein")] decimal Protein,
+    [property: JsonPropertyName("fat")] decimal Fat,
+    [property: JsonPropertyName("carbs")] decimal Carbs,
+    [property: JsonPropertyName("estimated_weight_g")] decimal EstimatedWeightG,
+    [property: JsonPropertyName("confidence")] string Confidence,
+    [property: JsonPropertyName("notes")] string? Notes = null);
+
+

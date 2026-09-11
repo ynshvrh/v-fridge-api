@@ -56,6 +56,8 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
     public FakeMealPlannerService Planner { get; } = new();
 
+    public FakeVChefClient VChef { get; } = new();
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         // Tests run from the test bin/ — point the host at the API project source so
@@ -101,6 +103,9 @@ public sealed class TestWebApplicationFactory : WebApplicationFactory<Program>
 
             services.RemoveAll<IMealPlannerService>();
             services.AddSingleton<IMealPlannerService>(Planner);
+
+            services.RemoveAll<IVChefClient>();
+            services.AddSingleton<IVChefClient>(VChef);
         });
 
         builder.UseEnvironment("Development");

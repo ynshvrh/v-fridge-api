@@ -46,6 +46,13 @@ public static class NutritionEndpoints
             .Produces(StatusCodes.Status401Unauthorized)
             .ProducesValidationProblem();
 
+        group.MapPost("/estimate", (EstimateNutritionRequest req, INutritionService service, CancellationToken ct) => service.EstimateAsync(req, ct))
+            .WithName("EstimateNutrition")
+            .WithSummary("Estimate macronutrients and calories for a food or meal using AI / heuristic fallback")
+            .Produces<EstimateNutritionResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status401Unauthorized)
+            .ProducesValidationProblem();
+
         return app;
     }
 }

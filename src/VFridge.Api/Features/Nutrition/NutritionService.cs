@@ -14,12 +14,14 @@ public class NutritionService : INutritionService
     private readonly VFridgeDbContext _db;
     private readonly ICurrentUser _me;
     private readonly FridgeContext _fridgeContext;
+    private readonly IVChefClient _vChefClient;
 
-    public NutritionService(VFridgeDbContext db, ICurrentUser me, FridgeContext fridgeContext)
+    public NutritionService(VFridgeDbContext db, ICurrentUser me, FridgeContext fridgeContext, IVChefClient vChefClient)
     {
         _db = db;
         _me = me;
         _fridgeContext = fridgeContext;
+        _vChefClient = vChefClient;
     }
 
     public async Task<IResult> GetDailyAsync(string? date, CancellationToken ct)
@@ -208,6 +210,54 @@ public class NutritionService : INutritionService
             user.DailyProteinTarget,
             user.DailyFatTarget,
             user.DailyCarbsTarget));
+    }
+
+    public async Task<IResult> EstimateAsync(EstimateNutritionRequest req, CancellationToken ct)
+    {
+        if (_me.UserId is null) return Results.Unauthorized();
+
+        if (string.IsNullOrWhiteSpace(req.DishName))
+        {
+            return Results.BadRequest(new { code = "INVALID_DISH_NAME", error = "Назва страви обов'язкова для оцінки" });
+        }
+
+        var vChefReq = new VChefNutritionEstimateRequest(
+            DishName: req.DishName.Trim(),
+            Quantity: req.Quantity,
+            Unit: req.Unit,
+            Notes: req.Notes,
+            Language: "uk");
+
+        var vChefResp = await _vChefClient.EstimateNutritionAsync(vChefReq, ct);
+        if (vChefResp is not null)
+        {
+            return Results.Ok(new EstimateNutritionResponse(
+                FoodName: vChefResp.FoodName,
+                Quantity: vChefResp.Quantity,
+                Unit: vChefResp.Unit,
+                Calories: vChefResp.Calories,
+                Protein: vChefResp.Protein,
+                Fat: vChefResp.Fat,
+                Carbs: vChefResp.Carbs,
+                EstimatedWeightG: vChefResp.EstimatedWeightG,
+                Confidence: vChefResp.Confidence,
+                Notes: vChefResp.Notes));
+        }
+
+        // Local graceful fallback if V-Chef microservice is unreachable
+        var fallbackQty = req.Quantity.GetValueOrDefault(200m);
+        var fallbackUnit = string.IsNullOrWhiteSpace(req.Unit) ? "г" : req.Unit;
+        return Results.Ok(new EstimateNutritionResponse(
+            FoodName: req.DishName.Trim(),
+            Quantity: fallbackQty,
+            Unit: fallbackUnit,
+            Calories: 250,
+            Protein: 15m,
+            Fat: 10m,
+            Carbs: 25m,
+            EstimatedWeightG: fallbackQty,
+            Confidence: "local_fallback",
+            Notes: "Оцінено локально (мікросервіс недоступний)."));
     }
 
     private static bool TryValidate(object instance, out Dictionary<string, string[]> errors)

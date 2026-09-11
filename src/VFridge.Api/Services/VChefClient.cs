@@ -8,6 +8,7 @@ public interface IVChefClient
     Task<VChefRecipeResponse?> GenerateRecipeAsync(VChefGenerateRecipeRequest request, CancellationToken ct = default);
     Task<VChefChatResponse?> ChatAsync(VChefChatRequest request, CancellationToken ct = default);
     Task<VChefMealPlanResponse?> GenerateMealPlanAsync(VChefMealPlanRequest request, CancellationToken ct = default);
+    Task<VChefNutritionEstimateResponse?> EstimateNutritionAsync(VChefNutritionEstimateRequest request, CancellationToken ct = default);
     Task PingHealthAsync(CancellationToken ct = default);
 }
 
@@ -72,6 +73,27 @@ public sealed class VChefClient(HttpClient http, ILogger<VChefClient> logger) : 
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to communicate with V-Chef microservice at {BaseAddress} during meal planning", http.BaseAddress);
+            return null;
+        }
+    }
+
+    public async Task<VChefNutritionEstimateResponse?> EstimateNutritionAsync(VChefNutritionEstimateRequest request, CancellationToken ct = default)
+    {
+        try
+        {
+            var response = await http.PostAsJsonAsync("/api/v1/nutrition/estimate", request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var errContent = await response.Content.ReadAsStringAsync(ct);
+                logger.LogWarning("V-Chef microservice returned status {Status}: {Error}", response.StatusCode, errContent);
+                return null;
+            }
+
+            return await response.Content.ReadFromJsonAsync<VChefNutritionEstimateResponse>(cancellationToken: ct);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Failed to communicate with V-Chef microservice at {BaseAddress} during nutrition estimate", http.BaseAddress);
             return null;
         }
     }
