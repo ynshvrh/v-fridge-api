@@ -1,6 +1,6 @@
 # V-Fridge API
 
-ASP.NET Core Minimal API (.NET 10) for **V-Fridge** — food inventory management, smart meal planning, calorie and macro nutrition tracking, shopping list auto-replenishment, shared fridges, and AI Chef integration via REST and gRPC.
+ASP.NET Core Minimal API (.NET 10) for **V-Fridge** — food inventory management, smart meal planning, calorie and macro nutrition tracking, shopping list auto-replenishment, shared fridges, and AI Chef integration via REST.
 
 This service exposes a typed REST surface for web and mobile clients, backed by PostgreSQL via Entity Framework Core 10 and integrated with the Go-based V-Chef microservice.
 
@@ -10,10 +10,10 @@ This service exposes a typed REST surface for web and mobile clients, backed by 
 
 * **Runtime:** .NET 10, ASP.NET Core Minimal API
 * **Database & ORM:** PostgreSQL via Entity Framework Core 10 (Npgsql provider) with EF Core Migrations
-* **Microservices Integration:** V-Chef Go microservice client (`IVChefClient`) supporting both HTTP REST (`VChefClient`) and gRPC (`VChefGrpcClient` via `chef.proto`) with internal token authentication and non-blocking warmup (`VChefWarmupService`)
+* **Microservices Integration:** V-Chef Go microservice client (`IVChefClient`) via HTTP REST (`VChefClient`) with internal token authentication and non-blocking warmup (`VChefWarmupService`)
 * **Background Workers:** `DailyMaintenanceWorker` (daily 09:00 Europe/Kyiv cron for product expiry digests and unverified account cleanup) and `VChefWarmupService`
 * **Authentication & Security:** Stateless JWT Bearer tokens + opaque refresh token rotation (returned in JSON body, no cookie dependence), Google OAuth ID token validation, email confirmation, rate limiting (Sliding Window)
-* **Email Delivery:** SMTP (MailKit) or Resend API (HTTPS-based for cloud hosts blocking outbound SMTP)
+* **Email Delivery:** SMTP (MailKit)
 * **AI Engine:** OpenRouter API (OpenAI-compatible chat completions with multi-model fallback) + V-Chef recipe generator
 * **API Documentation:** Native .NET 10 OpenAPI document at `/openapi/v1.json`
 * **Health Checks:** `/health` (DbContext & database connectivity check)
@@ -28,23 +28,21 @@ src/
 └── VFridge.Api/
     ├── Auth/                # Current user accessor (ICurrentUser, HttpContextCurrentUser)
     ├── Configuration/       # Strongly-typed configuration options (Jwt, Email, Cors, OpenRouter, Google, Frontend)
-    ├── Contracts/           # DTOs across all 9 modules (Auth, Products, Fridges, Shopping, MealPlan, Nutrition, Analytics, Chat, VChef)
+    ├── Contracts/           # DTOs across modules (Auth, Products, Fridges, Shopping, MealPlan, Nutrition, Chat, VChef)
     ├── Data/                # EF Core DbContext, entity definitions, and model snapshot
     │   └── Entities/        # User, Product, Fridge, ShoppingItem, ConsumptionLog, MealPlan, SavedRecipe, NutritionLog, etc.
-    ├── Endpoints/           # Minimal API route modules
-    │   ├── AnalyticsEndpoints.cs
-    │   ├── AuthEndpoints.cs
-    │   ├── ChatEndpoints.cs
-    │   ├── FridgeEndpoints.cs
-    │   ├── MealPlanEndpoints.cs
-    │   ├── NutritionEndpoints.cs
-    │   ├── ProductsEndpoints.cs
-    │   ├── SavedRecipeEndpoints.cs
-    │   └── ShoppingEndpoints.cs
+    ├── Features/            # Minimal API feature modules
+    │   ├── Auth/
+    │   ├── Chat/
+    │   ├── Fridges/
+    │   ├── MealPlanning/
+    │   ├── Nutrition/
+    │   ├── Products/
+    │   ├── SavedRecipes/
+    │   └── Shopping/
     ├── Infrastructure/      # PostgreSQL connection string normalizer
     ├── Migrations/          # EF Core Migrations (InitialCreate, etc.)
-    ├── Protos/              # Protocol Buffers schema (chef.proto) for gRPC communication
-    ├── Services/            # Business services (Auth, AI chat, meal planner, email sender, VChef clients, daily worker)
+    ├── Services/            # Business services (Auth, AI chat, meal planner, email sender, VChef client, daily worker)
     ├── Program.cs           # Application composition root, DI, middleware, and route registration
     ├── appsettings.json     # Configuration schema and defaults (no secrets)
     └── Properties/
@@ -59,19 +57,11 @@ tests/
 
 `v-fridge-api` integrates with the external **V-Chef** microservice to offload and accelerate AI recipe generation and meal planning workflows.
 
-### Integration Modes
+### HTTP REST Integration (`VChefClient`)
 
-The API supports two communication protocols with V-Chef, switchable via configuration (`VChef:UseGrpc`):
-
-1. **HTTP REST (`VChefClient`):**
-   * Configured via `VChef:BaseUrl` (default: `https://v-chef.onrender.com`).
-   * Sends structured JSON requests (`POST /api/v1/recipes/generate`) with inventory and dietary preferences.
-   * Includes the `X-Internal-Token` security header for service-to-service authentication.
-
-2. **gRPC (`VChefGrpcClient`):**
-   * Configured via `VChef:GrpcUrl` (default: `http://localhost:50051`).
-   * Uses strongly-typed Protocol Buffers generated from `Protos/chef.proto`.
-   * Attaches internal token authentication via gRPC call metadata interceptor.
+* Configured via `VChef:BaseUrl` (default: `https://v-chef.onrender.com`).
+* Sends structured JSON requests (`POST /api/v1/recipes/generate`, `POST /api/v1/chat`) with inventory and dietary preferences.
+* Includes the `X-Internal-Token` security header for service-to-service authentication.
 
 ### Warmup Service (`VChefWarmupService`)
 
@@ -91,13 +81,11 @@ All configuration is mapped from `appsettings.json`, environment variables, or `
 | `Jwt:Secret` | `Jwt__Secret` | Signing key for HMAC-SHA256 (>= 32 chars) | Required in Prod |
 | `Jwt:Issuer` | `Jwt__Issuer` | JWT issuer claim | `v-fridge-api` |
 | `Jwt:Audience` | `Jwt__Audience` | JWT audience claim | `v-fridge-app` |
-| `Email:Provider` | `Email__Provider` | Email provider: `smtp` or `resend` | `smtp` |
 | `Email:SmtpHost` | `Email__SmtpHost` | SMTP server host | `""` |
 | `Email:SmtpPort` | `Email__SmtpPort` | SMTP port (e.g. 587) | `587` |
 | `Email:Username` | `Email__Username` | SMTP username | `""` |
 | `Email:Password` | `Email__Password` | SMTP password / App password | `""` |
-| `Email:ResendApiKey` | `Email__ResendApiKey` | API key when provider is `resend` | `""` |
-| `Email:FromAddress` | `Email__FromAddress` | Sender email address | `""` |
+| `Email:From` | `Email__From` | Sender email address | `""` |
 | `Google:ClientId` | `Google__ClientId` | Google OAuth Client ID | `""` |
 | `Google:ClientSecret` | `Google__ClientSecret` | Google OAuth Client Secret | `""` |
 | `OpenRouter:ApiKey` | `OpenRouter__ApiKey` | API key for OpenRouter AI completions | `""` |

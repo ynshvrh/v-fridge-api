@@ -7,7 +7,6 @@ using Microsoft.IdentityModel.Tokens;
 using VFridge.Api.Auth;
 using VFridge.Api.Configuration;
 using VFridge.Api.Data;
-using VFridge.Api.Features.Analytics;
 using VFridge.Api.Features.Auth;
 using VFridge.Api.Features.Chat;
 using VFridge.Api.Features.Fridges;
@@ -148,49 +147,23 @@ builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService
     client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
 });
 var vChefBaseUrl = builder.Configuration["VChef:BaseUrl"] ?? "https://v-chef.onrender.com";
-var vChefGrpcUrl = builder.Configuration["VChef:GrpcUrl"] ?? "http://localhost:50051";
 var vChefInternalToken = builder.Configuration["VChef:InternalToken"] ?? builder.Configuration["VCHEF_INTERNAL_TOKEN"];
-var useGrpc = string.Equals(builder.Configuration["VChef:UseGrpc"], "true", StringComparison.OrdinalIgnoreCase);
 
-builder.Services.AddGrpcClient<VFridge.Api.Protos.V1.ChefService.ChefServiceClient>(options =>
+builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
 {
-    options.Address = new Uri(vChefGrpcUrl);
-});
-
-if (useGrpc)
-{
-    builder.Services.AddScoped<IVChefClient, VChefGrpcClient>();
-}
-else
-{
-    builder.Services.AddHttpClient<IVChefClient, VChefClient>(client =>
+    client.BaseAddress = new Uri(vChefBaseUrl);
+    client.Timeout = TimeSpan.FromSeconds(40);
+    if (!string.IsNullOrWhiteSpace(vChefInternalToken))
     {
-        client.BaseAddress = new Uri(vChefBaseUrl);
-        client.Timeout = TimeSpan.FromSeconds(40);
-        if (!string.IsNullOrWhiteSpace(vChefInternalToken))
-        {
-            client.DefaultRequestHeaders.Add("X-Internal-Token", vChefInternalToken);
-        }
-    });
-}
+        client.DefaultRequestHeaders.Add("X-Internal-Token", vChefInternalToken);
+    }
+});
 builder.Services.AddHostedService<VChefWarmupService>();
 builder.Services.AddSingleton<IPasswordHasher, BcryptPasswordHasher>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 
-// Email: SMTP by default; switch to Resend by setting Email__Provider=resend in env.
-// Cloud platforms (Render, Heroku, etc.) usually block outbound SMTP — Resend goes over HTTPS.
-var emailProvider = (builder.Configuration[$"{EmailOptions.SectionName}:Provider"] ?? "smtp").Trim().ToLowerInvariant();
-if (emailProvider == "resend")
-{
-    builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>(client =>
-    {
-        client.Timeout = TimeSpan.FromSeconds(30);
-    });
-}
-else
-{
-    builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
-}
+// Email: SMTP via MailKit
+builder.Services.AddSingleton<IEmailSender, SmtpEmailSender>();
 
 builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<FridgeContext>();
@@ -199,7 +172,6 @@ builder.Services.AddScoped<IFridgeService, FridgeService>();
 builder.Services.AddScoped<IShoppingService, ShoppingService>();
 builder.Services.AddScoped<IMealPlanService, MealPlanService>();
 builder.Services.AddScoped<INutritionService, NutritionService>();
-builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddScoped<ISavedRecipeService, SavedRecipeService>();
 builder.Services.AddScoped<IAuthFeatureService, AuthService>();
 
@@ -305,7 +277,6 @@ app.MapAuthEndpoints();
 app.MapProductsEndpoints();
 app.MapChatEndpoints();
 app.MapShoppingEndpoints();
-app.MapAnalyticsEndpoints();
 app.MapMealPlanEndpoints();
 app.MapSavedRecipeEndpoints();
 app.MapFridgeEndpoints();
