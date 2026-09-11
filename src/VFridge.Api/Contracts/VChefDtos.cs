@@ -47,3 +47,36 @@ public sealed record VChefChatResponse(
     [property: JsonPropertyName("recipe")] VChefRecipeResponse? Recipe,
     [property: JsonPropertyName("shopping_suggestions")] List<VChefIngredient>? ShoppingSuggestions);
 
+public sealed record VChefMealPlanRequest(
+    [property: JsonPropertyName("inventory")] List<string> Inventory,
+    [property: JsonPropertyName("cuisine_preference")] string CuisinePreference,
+    [property: JsonPropertyName("language")] string Language,
+    [property: JsonPropertyName("dietary_profile")] string? DietaryProfile,
+    [property: JsonPropertyName("day")] string? Day = null,
+    [property: JsonPropertyName("meal_type")] string? MealType = null,
+    [property: JsonPropertyName("existing_meals")] List<string>? ExistingMeals = null,
+    [property: JsonPropertyName("target_calories")] int? TargetCalories = null);
+
+public sealed record VChefMealPlanMeal(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("day")] string Day,
+    [property: JsonPropertyName("meal_type")] string MealType,
+    [property: JsonPropertyName("ingredients")] List<string> Ingredients,
+    [property: JsonPropertyName("note")] string? Note = null,
+    [property: JsonPropertyName("description")] string? Description = null,
+    [property: JsonPropertyName("steps")] List<string>? Steps = null,
+    [property: JsonPropertyName("calories")] int Calories = 0,
+    [property: JsonPropertyName("protein")] decimal Protein = 0,
+    [property: JsonPropertyName("fat")] decimal Fat = 0,
+    [property: JsonPropertyName("carbs")] decimal Carbs = 0);
+
+public sealed record VChefMealPlanGapItem(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("quantity")] string? Quantity = null,
+    [property: JsonPropertyName("unit")] string? Unit = null,
+    [property: JsonPropertyName("category")] string Category = "produce");
+
+public sealed record VChefMealPlanResponse(
+    [property: JsonPropertyName("meals")] List<VChefMealPlanMeal> Meals,
+    [property: JsonPropertyName("gap_items")] List<VChefMealPlanGapItem> GapItems);
+

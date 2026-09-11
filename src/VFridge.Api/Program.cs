@@ -43,7 +43,6 @@ builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptio
 builder.Services.Configure<EmailOptions>(builder.Configuration.GetSection(EmailOptions.SectionName));
 builder.Services.Configure<GoogleOptions>(builder.Configuration.GetSection(GoogleOptions.SectionName));
 builder.Services.Configure<FrontendOptions>(builder.Configuration.GetSection(FrontendOptions.SectionName));
-builder.Services.Configure<OpenRouterOptions>(builder.Configuration.GetSection(OpenRouterOptions.SectionName));
 
 // Database
 var rawConn = builder.Configuration.GetConnectionString("Default");
@@ -142,10 +141,7 @@ builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<ICurrentUser, HttpContextCurrentUser>();
 builder.Services.AddScoped<IAiChatService, VChefAiChatService>();
 builder.Services.AddScoped<IChatService, ChatService>();
-builder.Services.AddHttpClient<IMealPlannerService, OpenRouterMealPlannerService>(client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(120); // planner usually generates more tokens than chat
-});
+builder.Services.AddScoped<IMealPlannerService, VChefMealPlannerService>();
 var vChefBaseUrl = builder.Configuration["VChef:BaseUrl"] ?? "https://v-chef.onrender.com";
 var vChefInternalToken = builder.Configuration["VChef:InternalToken"] ?? builder.Configuration["VCHEF_INTERNAL_TOKEN"];
 
