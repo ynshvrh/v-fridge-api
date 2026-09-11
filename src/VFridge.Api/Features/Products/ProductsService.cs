@@ -276,73 +276,94 @@ public class ProductsService : IProductsService
             }
         }
 
-        // Strict ingredient verification
-        var missingRequired = new List<string>();
-        foreach (var parsed in ingredientsToDeduct)
-        {
-            var (isCovered, missingQty, unit) = IngredientDeductionHelper.CalculateMissing(parsed, fridgeProducts, []);
-
-            if (!isCovered)
-            {
-                var isOptional = IngredientDeductionHelper.IsOptionalSeasoningOrSauce(parsed);
-                if (!isOptional || !req.IgnoreOptionalMissing)
-                {
-                    missingRequired.Add(missingQty.HasValue ? $"{missingQty.Value}{unit} {parsed.CleanName}" : parsed.CleanName);
-                }
-            }
-        }
-
-        if (missingRequired.Count > 0 && !req.IgnoreOptionalMissing && (req.StructuredIngredients is { Count: > 0 } || req.Ingredients is { Count: > 0 }))
-        {
-            // If strictly required ingredients are missing
-            var missingList = string.Join(", ", missingRequired);
-            return Results.BadRequest(new
-            {
-                code = "MISSING_REQUIRED_INGREDIENTS",
-                error = $"Не вистачає інгредієнтів для приготування: {missingList}",
-                missing = missingRequired
-            });
-        }
-
         var deductions = new List<DeductedIngredientSummary>();
 
-        // Deduct matching ingredients from fridge inventory
-        foreach (var parsed in ingredientsToDeduct)
+        if (req.ItemsToDeduct is { Count: > 0 })
         {
-            var matching = fridgeProducts.FirstOrDefault(p => IngredientDeductionHelper.IsNameMatch(p.Name, parsed.CleanName));
-            if (matching is null) continue;
+            foreach (var item in req.ItemsToDeduct)
+            {
+                if (item.Quantity <= 0) continue;
+                Product? matching = null;
+                if (item.ProductId.HasValue)
+                {
+                    matching = fridgeProducts.FirstOrDefault(p => p.Id == item.ProductId.Value);
+                }
+                if (matching is null && !string.IsNullOrWhiteSpace(item.Name))
+                {
+                    matching = fridgeProducts.FirstOrDefault(p => IngredientDeductionHelper.IsNameMatch(p.Name, item.Name));
+                }
+                if (matching is null) continue;
 
-            decimal deductAmount;
-            if (parsed.Quantity is { } neededQty && neededQty > 0)
-            {
-                deductAmount = IngredientDeductionHelper.ConvertQuantity(neededQty, parsed.Unit, matching.Unit);
-            }
-            else
-            {
-                deductAmount = matching.Quantity >= 1 ? 1 : matching.Quantity;
-            }
+                decimal deductAmount = item.Quantity;
+                if (!string.IsNullOrWhiteSpace(item.Unit) && !string.IsNullOrWhiteSpace(matching.Unit) &&
+                    !string.Equals(item.Unit, matching.Unit, StringComparison.OrdinalIgnoreCase))
+                {
+                    deductAmount = IngredientDeductionHelper.ConvertQuantity(item.Quantity, item.Unit, matching.Unit);
+                }
 
-            bool fullyConsumed;
-            if (matching.Quantity <= deductAmount)
-            {
-                fullyConsumed = true;
-                deductAmount = matching.Quantity;
-                _db.Products.Remove(matching);
-                fridgeProducts.Remove(matching);
-                _db.ConsumptionLogs.Add(BuildConsumptionLog(matching, ConsumptionStatus.Consumed));
-            }
-            else
-            {
-                fullyConsumed = false;
-                matching.Quantity -= deductAmount;
-            }
+                bool fullyConsumed;
+                if (matching.Quantity <= deductAmount)
+                {
+                    fullyConsumed = true;
+                    deductAmount = matching.Quantity;
+                    _db.Products.Remove(matching);
+                    fridgeProducts.Remove(matching);
+                    _db.ConsumptionLogs.Add(BuildConsumptionLog(matching, ConsumptionStatus.Consumed));
+                }
+                else
+                {
+                    fullyConsumed = false;
+                    matching.Quantity -= deductAmount;
+                }
 
-            deductions.Add(new DeductedIngredientSummary(
-                parsed.RawText,
-                matching.Name,
-                deductAmount,
-                matching.Unit,
-                fullyConsumed));
+                deductions.Add(new DeductedIngredientSummary(
+                    RawIngredient: $"{item.Quantity} {item.Unit ?? matching.Unit} {matching.Name}",
+                    MatchedProductName: matching.Name,
+                    DeductedQuantity: deductAmount,
+                    Unit: matching.Unit,
+                    FullyConsumed: fullyConsumed));
+            }
+        }
+        else
+        {
+            // Deduct matching ingredients from fridge inventory
+            foreach (var parsed in ingredientsToDeduct)
+            {
+                var matching = fridgeProducts.FirstOrDefault(p => IngredientDeductionHelper.IsNameMatch(p.Name, parsed.CleanName));
+                if (matching is null) continue;
+
+                decimal deductAmount;
+                if (parsed.Quantity is { } neededQty && neededQty > 0)
+                {
+                    deductAmount = IngredientDeductionHelper.ConvertQuantity(neededQty, parsed.Unit, matching.Unit);
+                }
+                else
+                {
+                    deductAmount = matching.Quantity >= 1 ? 1 : matching.Quantity;
+                }
+
+                bool fullyConsumed;
+                if (matching.Quantity <= deductAmount)
+                {
+                    fullyConsumed = true;
+                    deductAmount = matching.Quantity;
+                    _db.Products.Remove(matching);
+                    fridgeProducts.Remove(matching);
+                    _db.ConsumptionLogs.Add(BuildConsumptionLog(matching, ConsumptionStatus.Consumed));
+                }
+                else
+                {
+                    fullyConsumed = false;
+                    matching.Quantity -= deductAmount;
+                }
+
+                deductions.Add(new DeductedIngredientSummary(
+                    parsed.RawText,
+                    matching.Name,
+                    deductAmount,
+                    matching.Unit,
+                    fullyConsumed));
+            }
         }
 
         // Prepare KBJU info

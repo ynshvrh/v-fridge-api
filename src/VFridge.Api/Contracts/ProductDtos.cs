@@ -63,6 +63,12 @@ public sealed record CookIngredientDto(
     string? Unit = null,
     string? Category = null);
 
+public sealed record ProductDeductionItem(
+    int? ProductId,
+    string? Name,
+    decimal Quantity,
+    string? Unit = null);
+
 public sealed record CookRecipeRequest(
     [property: Required, MinLength(2, ErrorMessage = "Recipe name is too short")]
     string Name,
@@ -71,6 +77,7 @@ public sealed record CookRecipeRequest(
     int Portions = 1,
     IReadOnlyList<CookIngredientDto>? StructuredIngredients = null,
     IReadOnlyList<string>? Ingredients = null,
+    IReadOnlyList<ProductDeductionItem>? ItemsToDeduct = null,
     int? CaloriesPerPortion = null,
     decimal? ProteinPerPortion = null,
     decimal? FatPerPortion = null,

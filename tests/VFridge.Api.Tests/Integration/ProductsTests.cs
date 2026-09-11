@@ -330,7 +330,7 @@ public class ProductsTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CookRecipe_WithMissingRequiredIngredients_Returns_BadRequest()
+    public async Task CookRecipe_WithMissingRequiredIngredients_DoesNotBlockAndDeductsAvailable()
     {
         // Only have chicken, but recipe requires chicken + rice
         await _client.PostAsJsonAsync("/products", new { name = "Куряче філе", quantity = 500, unit = "г", category = "meat-fish" });
@@ -343,9 +343,36 @@ public class ProductsTests : IAsyncLifetime
             caloriesPerPortion = 400
         });
 
-        cookResp.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        cookResp.StatusCode.Should().Be(HttpStatusCode.OK);
         var body = await cookResp.Content.ReadFromJsonAsync<JsonElement>();
-        body.GetProperty("code").GetString().Should().Be("MISSING_REQUIRED_INGREDIENTS");
+        body.GetProperty("preparedMealProduct").GetProperty("name").GetString().Should().Be("Куряче філе з рисом");
+
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        var chicken = products.EnumerateArray().FirstOrDefault(p => p.GetProperty("name").GetString() == "Куряче філе");
+        chicken.GetProperty("quantity").GetDecimal().Should().Be(200m);
+    }
+
+    [Fact]
+    public async Task CookRecipe_WithExplicitItemsToDeduct_DeductsOnlySelectedQuantities()
+    {
+        var chickenResp = await _client.PostAsJsonAsync("/products", new { name = "Куряче стегно", quantity = 600, unit = "г", category = "meat-fish" });
+        var chicken = await chickenResp.Content.ReadFromJsonAsync<JsonElement>();
+        var chickenId = chicken.GetProperty("id").GetInt32();
+
+        var cookResp = await _client.PostAsJsonAsync("/products/cook", new
+        {
+            name = "Печене стегно",
+            portions = 2,
+            itemsToDeduct = new[]
+            {
+                new { productId = chickenId, name = "Куряче стегно", quantity = 250m, unit = "г" }
+            }
+        });
+
+        cookResp.StatusCode.Should().Be(HttpStatusCode.OK);
+        var products = await _client.GetFromJsonAsync<JsonElement>("/products");
+        var remainingChicken = products.EnumerateArray().FirstOrDefault(p => p.GetProperty("id").GetInt32() == chickenId);
+        remainingChicken.GetProperty("quantity").GetDecimal().Should().Be(350m);
     }
 
     [Fact]
