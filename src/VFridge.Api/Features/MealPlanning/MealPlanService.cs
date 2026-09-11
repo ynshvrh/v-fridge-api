@@ -111,6 +111,7 @@ public class MealPlanService : IMealPlanService
             }
         }
 
+        // Enforce user rule: Single focused day with 3 meals without stacking/accumulating past days
         var validatedDay = DateTime.UtcNow.DayOfWeek.ToString();
 
         var plan = await _planner.GenerateAsync(
@@ -119,7 +120,7 @@ public class MealPlanService : IMealPlanService
             language,
             dietaryProfile,
             currentDay: validatedDay,
-            existingMeals: existingMeals,
+            existingMeals: null,
             ct);
 
         if (plan is null)
@@ -130,14 +131,6 @@ public class MealPlanService : IMealPlanService
         }
 
         var candidateGaps = plan.GapItems.ToList();
-        if (isSameWeek && existingGaps is not null)
-        {
-            candidateGaps = existingGaps
-                .Concat(plan.GapItems)
-                .GroupBy(g => g.Name.ToLower().Trim())
-                .Select(grp => grp.First())
-                .ToList();
-        }
 
         var enrichedMeals = await EnrichMealsWithStructuredIngredientsAsync(fridgeId, plan.Meals.ToList(), language, ct);
         var filteredGaps = await FilterGapItemsAsync(fridgeId, enrichedMeals, candidateGaps, ct);
